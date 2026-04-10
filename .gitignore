@@ -7,5 +7,9 @@ build/
 # AI agent config (private)
 .claude/
 
+# Internal project management (not for public repo)
+HANDOFF/
+inbox/
+
 # SD card assets (deploy separately)
 rssreader/
