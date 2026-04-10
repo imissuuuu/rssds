@@ -177,3 +177,214 @@ std::string stripHtml(const std::string& html) {
 
     return normalized;
 }
+
+// =============================================================================
+// extractContent: Lexbor DOM + Readability ヒューリスティクス
+// スタックオーバーフロー対策:
+//   1. HTML 入力を 256KB に切り詰めて Lexbor の内部再帰を抑制
+//   2. 全 DOM トラバーサルを lxb_dom_node_simple_walk（内部イテレーティブ）で実装
+// =============================================================================
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+#include "lexbor/html/html.h"
+#ifdef __cplusplus
+}
+#endif
+
+#include <vector>
+
+static const size_t EC_MAX_HTML_BYTES = 256 * 1024; // 256KB
+
+static const char* NOISE_TAGS[]    = {
+    "script","style","noscript","nav","header","footer","aside","form", nullptr
+};
+static const char* PRIORITY_TAGS[] = { "article", "main", nullptr };
+static const char* CANDIDATE_TAGS[] = { "div", "section", nullptr };
+static const char* TEXT_TAGS[]     = { "p", "pre", "li", nullptr };
+static const char* BLOCK_TAGS[]    = {
+    "p","div","br","li","h1","h2","h3","h4","h5","h6",
+    "tr","blockquote","pre", nullptr
+};
+
+// node のタグ名が name と一致するか（Lexbor は小文字で保持）
+static bool ec_tagEq(lxb_dom_node_t* node, const char* name) {
+    if (!node || node->type != LXB_DOM_NODE_TYPE_ELEMENT) return false;
+    size_t len = 0;
+    const lxb_char_t* tag = lxb_dom_element_local_name(
+        lxb_dom_interface_element(node), &len);
+    if (!tag || len == 0) return false;
+    for (size_t i = 0; i < len; ++i) {
+        if (!name[i]) return false;
+        if (tag[i] != (lxb_char_t)name[i]) return false; // Lexbor は既に小文字
+    }
+    return name[len] == '\0';
+}
+
+static bool ec_tagIn(lxb_dom_node_t* node, const char** tags) {
+    for (int i = 0; tags[i]; ++i)
+        if (ec_tagEq(node, tags[i])) return true;
+    return false;
+}
+
+// ---- ノイズ除去（simple_walk + 後処理削除） ----
+
+static lexbor_action_t ec_noise_collect_cb(lxb_dom_node_t* node, void* ctx) {
+    auto* list = static_cast<std::vector<lxb_dom_node_t*>*>(ctx);
+    if (ec_tagIn(node, NOISE_TAGS)) {
+        list->push_back(node);
+        return LEXBOR_ACTION_NEXT; // サブツリーごと削除するので子はスキップ
+    }
+    return LEXBOR_ACTION_OK;
+}
+
+static void ec_removeNoise(lxb_dom_node_t* root) {
+    std::vector<lxb_dom_node_t*> to_remove;
+    lxb_dom_node_simple_walk(root, ec_noise_collect_cb, &to_remove);
+    for (auto* n : to_remove) lxb_dom_node_remove(n);
+}
+
+// ---- article/main を探す（simple_walk） ----
+
+static lexbor_action_t ec_priority_find_cb(lxb_dom_node_t* node, void* ctx) {
+    auto* found = static_cast<lxb_dom_node_t**>(ctx);
+    if (ec_tagIn(node, PRIORITY_TAGS)) {
+        *found = node;
+        return LEXBOR_ACTION_STOP;
+    }
+    return LEXBOR_ACTION_OK;
+}
+
+static lxb_dom_node_t* ec_findPriority(lxb_dom_node_t* root) {
+    lxb_dom_node_t* found = nullptr;
+    lxb_dom_node_simple_walk(root, ec_priority_find_cb, &found);
+    return found;
+}
+
+// ---- スコアリング（simple_walk） ----
+
+struct ScoreCtx {
+    double text_score;  // p/pre/li の文字数 + 句読点
+    double link_text;   // <a> 内の文字数
+};
+
+static lexbor_action_t ec_score_cb(lxb_dom_node_t* node, void* ctx) {
+    auto* sc = static_cast<ScoreCtx*>(ctx);
+    if (ec_tagIn(node, TEXT_TAGS)) {
+        size_t len = 0;
+        lxb_char_t* txt = lxb_dom_node_text_content(node, &len);
+        // txt は document destroy 時に一括解放。lexbor_free() は不可（mraw 管理下）
+        if (txt) {
+            sc->text_score += (double)len;
+            for (size_t i = 0; i < len; ++i) {
+                char c = (char)txt[i];
+                if (c=='.'||c==','||c==';'||c==':'||c=='!'||c=='?')
+                    sc->text_score += 1.0;
+            }
+        }
+        return LEXBOR_ACTION_NEXT; // 子を二重カウントしない
+    }
+    if (ec_tagEq(node, "a")) {
+        size_t len = 0;
+        lxb_char_t* txt = lxb_dom_node_text_content(node, &len);
+        if (txt) { sc->link_text += (double)len; }
+        return LEXBOR_ACTION_NEXT;
+    }
+    return LEXBOR_ACTION_OK;
+}
+
+static double ec_scoreCandidate(lxb_dom_node_t* node) {
+    size_t totalLen = 0;
+    lxb_char_t* txt = lxb_dom_node_text_content(node, &totalLen);
+    if (!txt || totalLen == 0) return 0.0;
+
+    ScoreCtx sc = {0.0, 0.0};
+    lxb_dom_node_simple_walk(node, ec_score_cb, &sc);
+
+    double lk = sc.link_text / (double)totalLen;
+    return sc.text_score * (1.0 - lk);
+}
+
+// ---- テキスト化（simple_walk） ----
+
+static lexbor_action_t ec_text_cb(lxb_dom_node_t* node, void* ctx) {
+    auto* out = static_cast<std::string*>(ctx);
+    if (node->type == LXB_DOM_NODE_TYPE_TEXT) {
+        size_t len = 0;
+        lxb_char_t* txt = lxb_dom_node_text_content(node, &len);
+        // txt は document destroy 時に一括解放。lexbor_free() は不可（mraw 管理下）
+        if (txt) { out->append((char*)txt, len); }
+        return LEXBOR_ACTION_OK;
+    }
+    if (node->type == LXB_DOM_NODE_TYPE_ELEMENT && ec_tagIn(node, BLOCK_TAGS)) {
+        if (!out->empty() && out->back() != '\n')
+            *out += '\n';
+    }
+    return LEXBOR_ACTION_OK;
+}
+
+// ---- 公開関数 ----
+
+std::string extractContent(const std::string& html) {
+    // 1. 入力サイズ制限（Lexbor 内部の DOM 構築による再帰深さを抑制）
+    size_t parse_len = html.size() > EC_MAX_HTML_BYTES ? EC_MAX_HTML_BYTES : html.size();
+
+    lxb_html_document_t* doc = lxb_html_document_create();
+    if (!doc) return stripHtml(html);
+
+    lxb_status_t st = lxb_html_document_parse(
+        doc, (const lxb_char_t*)html.c_str(), parse_len);
+    if (st != LXB_STATUS_OK) {
+        lxb_html_document_destroy(doc);
+        return stripHtml(html);
+    }
+
+    lxb_html_body_element_t* bodyEl = lxb_html_document_body_element(doc);
+    if (!bodyEl) {
+        lxb_html_document_destroy(doc);
+        return stripHtml(html);
+    }
+    lxb_dom_node_t* body = lxb_dom_interface_node(bodyEl);
+
+    // 2. ノイズ除去
+    ec_removeNoise(body);
+
+    // 3. article/main があれば即採用
+    lxb_dom_node_t* winner = ec_findPriority(body);
+
+    // 4. なければ body 直下の div/section をスコアリング
+    if (!winner) {
+        double bestScore = 0.0;
+        lxb_dom_node_t* node = lxb_dom_node_first_child(body);
+        while (node) {
+            if (ec_tagIn(node, CANDIDATE_TAGS)) {
+                double s = ec_scoreCandidate(node);
+                if (s > bestScore) { bestScore = s; winner = node; }
+            }
+            node = lxb_dom_node_next(node);
+        }
+    }
+
+    // 5. 勝者なしは body 全体
+    if (!winner) winner = body;
+
+    // 6. テキスト化
+    std::string result;
+    result.reserve(4096);
+    lxb_dom_node_simple_walk(winner, ec_text_cb, &result);
+
+    lxb_html_document_destroy(doc);
+
+    if (result.empty()) return stripHtml(html);
+
+    // 連続空行を正規化
+    std::string normalized;
+    normalized.reserve(result.size());
+    int nlCount = 0;
+    for (char c : result) {
+        if (c == '\n') { if (++nlCount <= 2) normalized += c; }
+        else           { nlCount = 0; normalized += c; }
+    }
+    return normalized;
+}

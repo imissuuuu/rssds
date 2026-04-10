@@ -12,9 +12,9 @@ include $(DEVKITPRO)/devkitARM/3ds_rules
 #---------------------------------------------------------------------------------
 TARGET		:=	rssds
 BUILD		:=	build
-SOURCES		:=	source lib/tinyxml2
+SOURCES		:=	source lib/tinyxml2 lib/lexbor
 DATA		:=	data
-INCLUDES	:=	include lib/tinyxml2 lib/nlohmann
+INCLUDES	:=	include lib/tinyxml2 lib/nlohmann lib/lexbor
 GRAPHICS	:=	gfx
 ROMFS		:=	romfs
 
