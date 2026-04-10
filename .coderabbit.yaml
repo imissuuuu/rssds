@@ -1,0 +1,30 @@
+language: "ja"
+
+reviews:
+  profile: "assertive"
+  instructions: |
+    このプロジェクトは Nintendo 3DS 向けの homebrew アプリ（C++）です。
+    以下の制約・環境を踏まえてレビューしてください：
+
+    ## ハードウェア制約
+    - RAM: 物理 128MB（システム使用分除くと実質 ~64MB）
+    - CPU: ARM11 MPCore（FPU あり、SIMD なし）
+    - ヒープ確保の失敗・メモリリークに特に注意
+
+    ## 使用ライブラリ
+    - libctru: 3DS システムコール・SOC（ソケット）・スレッド
+    - citro2d / citro3d: 2D 描画
+    - libcurl + mbedtls: HTTPS 通信
+    - tinyxml2: XML パース（RSS/Atom）
+
+    ## コーディング上の注意
+    - C++ 例外（try/catch）は devkitPro では使用不可
+    - STL は限定的に使用可（std::vector, std::string 等）
+    - エラーはリターンコードで処理
+    - UTF-8 文字列処理（日本語含む）のバイト境界に注意
+
+    ## レビュー観点
+    - メモリ管理（リーク・二重解放・バッファオーバーラン）
+    - NULL/nullptr チェック漏れ
+    - libcurl / tinyxml2 の戻り値未チェック
+    - 3DS の画面解像度（上: 400x240、下: 320x240）に関する決め打ち数値
