@@ -19,17 +19,12 @@ static constexpr float LINE_HEIGHT    = 14.0f;
 static constexpr float TEXT_MARGIN_X  = 6.0f;
 static constexpr float TEXT_MARGIN_Y  = 6.0f;
 
-// citro2d システムフォント: scale=1.0 で約 12px/文字（半角近似値）
-// 実機確認後にここの値を調整すれば全画面の折り返しが一括で変わる
-static constexpr float CHAR_WIDTH_AT_SCALE1 = 12.0f;
 
-// テキスト折り返し用ピクセル幅（実機テスト済み）
-// Body (scale 0.5): 上画面=375px, 下画面=308px
-// Heading (scale 0.65 = Body*1.3): BOT_WRAP_PX を 1.3 で割り戻して渡す
+// テキスト折り返し用ピクセル幅
+// wrapText の高速推定用。citro2d による実幅検証で最終的に正確にトリムされる
 static constexpr int   TOP_WRAP_PX         = 375;
 static constexpr int   BOT_WRAP_PX         = 308;
 static constexpr float HEADING_SCALE_FACTOR = 1.3f;
-static constexpr int   BOT_WRAP_PX_HEADING  = (int)(BOT_WRAP_PX / HEADING_SCALE_FACTOR);  // ≈236
 
 static constexpr int TOP_MAX_LINES =
     (int)((TOP_H - TEXT_MARGIN_Y * 2) / LINE_HEIGHT);
@@ -45,9 +40,10 @@ static constexpr u32 CLR_HINT   = C2D_Color32(0xA0, 0xA0, 0xA0, 0xFF);
 static constexpr u32 CLR_TITLE  = C2D_Color32(0x5c, 0xd4, 0xff, 0xFF);
 static constexpr u32 CLR_ERROR  = C2D_Color32(0xFF, 0x80, 0x80, 0xFF);
 
-static C3D_RenderTarget* topTarget = nullptr;
-static C3D_RenderTarget* botTarget = nullptr;
-static C2D_TextBuf       textBuf   = nullptr;
+static C3D_RenderTarget* topTarget   = nullptr;
+static C3D_RenderTarget* botTarget   = nullptr;
+static C2D_TextBuf       textBuf     = nullptr;
+static C2D_TextBuf       measureBuf  = nullptr;  // 幅測定専用バッファ
 
 // テキストスタイル（将来: Heading2, Bold, Caption 等を追加可能）
 enum class TextStyle { Body, Heading };
@@ -66,12 +62,15 @@ static StyleParams resolveStyle(TextStyle style) {
 }
 
 void uiInit() {
-    topTarget = C2D_CreateScreenTarget(GFX_TOP,    GFX_LEFT);
-    botTarget = C2D_CreateScreenTarget(GFX_BOTTOM, GFX_LEFT);
-    textBuf   = C2D_TextBufNew(4096);
+    topTarget  = C2D_CreateScreenTarget(GFX_TOP,    GFX_LEFT);
+    botTarget  = C2D_CreateScreenTarget(GFX_BOTTOM, GFX_LEFT);
+    textBuf    = C2D_TextBufNew(4096);
+    measureBuf = C2D_TextBufNew(512);
 }
 
 void uiExit() {
+    C2D_TextBufDelete(measureBuf);
+    measureBuf = nullptr;
     C2D_TextBufDelete(textBuf);
     textBuf = nullptr;
 }
@@ -98,10 +97,29 @@ static int utf8CharPx(unsigned char lead) {
     if (lead < 0x80)               return 6;
     if ((lead & 0xE0) == 0xC0)     return 8;
     if ((lead & 0xF0) == 0xE0)     return 12;
-    return 0; // 4バイト（html_strip でフィルタ済み）
+    return 12; // 4バイト（絵文字等）: フルwidth相当で保守的に推定
 }
 
-static std::vector<std::string> wrapText(const std::string& src, int maxPixels) {
+// citro2d の実幅（scale=1.0 時の width）を返す
+static float measureStr(const char* str, float scale) {
+    C2D_TextBufClear(measureBuf);
+    C2D_Text t;
+    C2D_TextParse(&t, measureBuf, str);
+    return t.width * scale;
+}
+
+// str の末尾 UTF-8 文字を削除しながら maxPx 以内に収める
+static void trimToWidth(std::string& str, int maxPx, float scale) {
+    while (!str.empty() && measureStr(str.c_str(), scale) > (float)maxPx) {
+        size_t i = str.size() - 1;
+        while (i > 0 && ((unsigned char)str[i] & 0xC0) == 0x80) --i;
+        str.erase(i);
+    }
+}
+
+static std::vector<std::string> wrapText(const std::string& src, int maxPixels,
+                                          float scale = TEXT_SCALE) {
+    const float scaleRatio = scale / TEXT_SCALE;
     std::vector<std::string> lines;
     size_t pos = 0;
     const size_t len = src.size();
@@ -109,27 +127,31 @@ static std::vector<std::string> wrapText(const std::string& src, int maxPixels) 
         size_t nl   = src.find('\n', pos);
         size_t hard = (nl != std::string::npos) ? nl : len;
 
-        // hard まで何ピクセル入るか走査
+        // hard まで何ピクセル入るか走査（スケール補正済みの高速推定）
         int    px    = 0;
         size_t split = pos;
         while (split < hard) {
             unsigned char c = (unsigned char)src[split];
             int bytes = (c < 0x80) ? 1 : (c < 0xE0) ? 2 : (c < 0xF0) ? 3 : 4;
-            int cpx   = utf8CharPx(c);
+            int cpx   = (int)(utf8CharPx(c) * scaleRatio + 0.5f);
             if (px + cpx > maxPixels) break;
             px    += cpx;
             split += bytes;
         }
 
+        std::string line;
         if (split == hard) {
-            // 改行 or 文字列末尾まで収まった
-            lines.push_back(src.substr(pos, hard - pos));
-            pos = hard + (nl != std::string::npos ? 1 : 0);
+            line = src.substr(pos, hard - pos);
+            pos  = hard + (nl != std::string::npos ? 1 : 0);
         } else {
-            // 折り返し
-            lines.push_back(src.substr(pos, split - pos));
-            pos = split;
+            line = src.substr(pos, split - pos);
+            pos  = split;
         }
+
+        // 推定が上限の90%以上の場合のみ実幅検証（大半の行はスキップ）
+        if (px * 10 >= maxPixels * 9)
+            trimToWidth(line, maxPixels, scale);
+        lines.push_back(std::move(line));
     }
     return lines;
 }
@@ -259,7 +281,8 @@ static void drawArticleView(const AppState& state) {
     C2D_TargetClear(botTarget, CLR_PANEL);
     C2D_SceneBegin(botTarget);
 
-    std::vector<std::string> titleLines = wrapText(art.title, BOT_WRAP_PX_HEADING);
+    std::vector<std::string> titleLines = wrapText(art.title, BOT_WRAP_PX,
+                                                    TEXT_SCALE * HEADING_SCALE_FACTOR);
     for (int i = 0; i < (int)titleLines.size() && i < 2; ++i) {
         drawStyledText(titleLines[i].c_str(), TEXT_MARGIN_X,
                        TEXT_MARGIN_Y + (float)i * LINE_HEIGHT, 0.5f,
