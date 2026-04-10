@@ -2,7 +2,12 @@
 #include <string>
 #include <vector>
 
-// SDカード上の feeds.txt からフィードURLを読み込む。
-// 空行・'#'始まりの行はスキップ。
-// ファイルが存在しない場合は空のvectorを返す。
-std::vector<std::string> loadFeedUrls(const std::string& path);
+struct FeedConfig {
+    std::string url;
+    std::string name;           // 省略時は url をそのまま使用
+    bool fetch_full_text = false;
+};
+
+// sdmc:/3ds/rssreader/feeds.json を読む。
+// ファイルが存在しない / パース失敗時は空 vector を返す。
+std::vector<FeedConfig> loadFeedConfig(const std::string& path);

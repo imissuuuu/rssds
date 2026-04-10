@@ -3,9 +3,11 @@
 #include <cstdlib>
 #include <cstring>
 
-// 中身ごとスキップするタグ（script / style）
+// 中身ごとスキップするタグ
 static bool isSkipContentTag(const char* tag, int len) {
-    static const char* SKIP[] = { "script", "style", "noscript", nullptr };
+    static const char* SKIP[] = {
+        "script", "style", "noscript", nullptr
+    };
     for (int i = 0; SKIP[i]; ++i) {
         int sl = (int)strlen(SKIP[i]);
         if (sl == len && strncasecmp(tag, SKIP[i], len) == 0) return true;

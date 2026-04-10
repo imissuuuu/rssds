@@ -6,13 +6,6 @@
 #include "rss.h"
 #include "ui.h"
 
-// テスト用ハードコードURL（feeds.txt が空の場合に使用）
-static const char* TEST_URLS[] = {
-    "https://news.ycombinator.com/rss",
-    "https://arstechnica.com/feed/",
-    nullptr
-};
-
 int main() {
     // グラフィックス初期化
     gfxInitDefault();
@@ -23,49 +16,28 @@ int main() {
     uiInit();
 
     AppState state;
-    state.statusMsg = "Initializing network...";
 
     // ネットワーク初期化
     bool netOk = netInit();
     if (!netOk) {
         char errBuf[64];
-        snprintf(errBuf, sizeof(errBuf), "SOC init failed: 0x%08lX", (unsigned long)netLastError());
+        snprintf(errBuf, sizeof(errBuf), "SOC init failed: 0x%08lX",
+                 (unsigned long)netLastError());
         state.statusMsg = errBuf;
-    } else {
-        state.statusMsg = "Loading feeds...";
-
-        // フィードURL読み込み
-        std::vector<std::string> urls =
-            loadFeedUrls("sdmc:/3ds/rssreader/feeds.txt");
-
-        if (urls.empty()) {
-            for (int i = 0; TEST_URLS[i]; ++i)
-                urls.emplace_back(TEST_URLS[i]);
-        }
-
-        // フィード取得・パース
-        for (const auto& url : urls) {
-            std::string errMsg;
-            std::string xml = httpGet(url, errMsg);
-            if (xml.empty()) {
-                // 取得失敗は無視して次へ（statusMsgに最後のエラーを残す）
-                state.statusMsg = std::string("Fetch failed: ") + errMsg;
-                continue;
-            }
-            Feed feed = parseFeed(xml, errMsg);
-            if (!errMsg.empty()) {
-                state.statusMsg = std::string("Parse failed: ") + errMsg;
-                continue;
-            }
-            state.feeds.push_back(std::move(feed));
-        }
-
-        if (state.feeds.empty()) {
-            state.statusMsg = "No feeds loaded. Check network/URLs.";
-        } else {
-            state.statusMsg = "";
-        }
     }
+
+    // フィード設定をローカルから読み込む（ネットワーク不要・即座）
+    std::vector<FeedConfig> configs =
+        loadFeedConfig("sdmc:/3ds/rssreader/feeds.json");
+
+    if (configs.empty()) {
+        configs.push_back({"https://news.ycombinator.com/rss", "Hacker News", false});
+        configs.push_back({"https://arstechnica.com/feed/",    "Ars Technica",  false});
+    }
+
+    state.feedConfigs = std::move(configs);
+    state.feeds.resize(state.feedConfigs.size());
+    state.feedLoaded.resize(state.feedConfigs.size(), false);
 
     // メインループ
     while (aptMainLoop()) {
@@ -74,6 +46,39 @@ int main() {
         u32 kHeld = hidKeysHeld();
 
         if (kDown & KEY_START) break;
+
+        // Loading 状態: 前フレームで Loading 画面が表示済み → フェッチ実行
+        if (state.currentScreen == Screen::Loading) {
+            int idx = state.selectedFeed;
+            if (idx >= 0 && idx < (int)state.feedConfigs.size()) {
+                if (state.feedLoaded[idx]) {
+                    // キャッシュ済み
+                    state.currentScreen = Screen::ArticleList;
+                } else if (!netOk) {
+                    state.statusMsg = "Network unavailable.";
+                    state.currentScreen = Screen::FeedList;
+                } else {
+                    std::string errMsg;
+                    std::string xml = httpGet(state.feedConfigs[idx].url, errMsg);
+                    if (xml.empty()) {
+                        state.statusMsg = std::string("Fetch failed: ") + errMsg;
+                        state.currentScreen = Screen::FeedList;
+                    } else {
+                        state.feeds[idx] = parseFeed(xml, errMsg);
+                        state.feedLoaded[idx] = true;
+                        state.statusMsg = "";
+                        state.currentScreen = Screen::ArticleList;
+                    }
+                }
+            } else {
+                state.currentScreen = Screen::FeedList;
+            }
+            // Loading 中は入力処理をスキップして描画のみ行う
+            C3D_FrameBegin(C3D_FRAME_SYNCDRAW);
+            uiDraw(state);
+            C3D_FrameEnd(0);
+            continue;
+        }
 
         uiHandleInput(state, kDown, kHeld);
 

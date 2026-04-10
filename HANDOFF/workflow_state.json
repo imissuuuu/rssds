@@ -1,7 +1,7 @@
 {
   "flow": "full",
-  "task": "rss-reader-requirements",
-  "step": "done",
+  "task": "phase0-foundation",
+  "step": 5,
   "total": 5,
-  "updated": "2026-04-10T06:13:35Z"
+  "updated": "2026-04-10T11:05:48Z"
 }

@@ -14,7 +14,7 @@ TARGET		:=	rssds
 BUILD		:=	build
 SOURCES		:=	source lib/tinyxml2
 DATA		:=	data
-INCLUDES	:=	include lib/tinyxml2
+INCLUDES	:=	include lib/tinyxml2 lib/nlohmann
 GRAPHICS	:=	gfx
 ROMFS		:=	romfs
 

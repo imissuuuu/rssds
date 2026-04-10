@@ -1,26 +1,39 @@
+#define JSON_NOEXCEPTION
 #include "feed_config.h"
+#include "json.hpp"
 #include <cstdio>
 
-std::vector<std::string> loadFeedUrls(const std::string& path) {
-    std::vector<std::string> urls;
+std::vector<FeedConfig> loadFeedConfig(const std::string& path) {
+    std::vector<FeedConfig> configs;
 
     FILE* fp = fopen(path.c_str(), "r");
-    if (!fp) return urls;
+    if (!fp) return configs;
 
-    char line[512];
-    while (fgets(line, sizeof(line), fp)) {
-        // 末尾の改行・空白を除去
-        int len = 0;
-        while (line[len] != '\0') len++;
-        while (len > 0 && (line[len-1] == '\n' || line[len-1] == '\r' || line[len-1] == ' '))
-            line[--len] = '\0';
+    fseek(fp, 0, SEEK_END);
+    long size = ftell(fp);
+    rewind(fp);
 
-        if (len == 0) continue;        // 空行
-        if (line[0] == '#') continue;  // コメント行
-
-        urls.emplace_back(line);
+    if (size <= 0) {
+        fclose(fp);
+        return configs;
     }
 
+    std::string content(static_cast<size_t>(size), '\0');
+    fread(&content[0], 1, static_cast<size_t>(size), fp);
     fclose(fp);
-    return urls;
+
+    // allow_exceptions=false: パース失敗時は discarded value を返す
+    auto j = nlohmann::json::parse(content, nullptr, false);
+    if (j.is_discarded()) return configs;
+    if (!j.contains("feeds") || !j["feeds"].is_array()) return configs;
+
+    for (const auto& item : j["feeds"]) {
+        if (!item.contains("url") || !item["url"].is_string()) continue;
+        FeedConfig cfg;
+        cfg.url             = item["url"].get<std::string>();
+        cfg.name            = item.value("name", cfg.url);
+        cfg.fetch_full_text = item.value("fetch_full_text", false);
+        configs.push_back(std::move(cfg));
+    }
+    return configs;
 }
