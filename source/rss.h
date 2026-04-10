@@ -7,6 +7,7 @@ struct Article {
     std::string link;
     std::string content;  // HTML or plaintext (フィード由来)
     std::string pubDate;
+    bool fullFetched = false;  // true: リンク先から全文取得済み
 };
 
 struct Feed {

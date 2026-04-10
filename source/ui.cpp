@@ -270,8 +270,26 @@ static void drawArticleView(const AppState& state) {
     snprintf(scrollInfo, sizeof(scrollInfo), "Line %d / %d", scroll + 1, totalLines);
     drawText(scrollInfo, TEXT_MARGIN_X, BOT_H - 30.0f, 0.5f,
              TEXT_SCALE, TEXT_SCALE, CLR_HINT);
-    drawText("Up/Down:scroll  B:back", TEXT_MARGIN_X, BOT_H - 16.0f,
-             0.5f, 0.42f, 0.42f, CLR_HINT);
+    const char* guide = (!art.fullFetched && !art.link.empty())
+        ? "Up/Down:scroll  A:full article  B:back"
+        : "Up/Down:scroll  B:back";
+    drawText(guide, TEXT_MARGIN_X, BOT_H - 16.0f, 0.5f, 0.42f, 0.42f, CLR_HINT);
+}
+
+// --- フェッチヘルパー ---
+
+// art.link からHTMLを取得してart.contentを更新する。成功時trueを返す。
+static bool doFetchArticle(Article& art, AppState& state, const char* loadingMsg) {
+    state.statusMsg = loadingMsg;
+    std::string errMsg;
+    std::string body = fetchArticleBody(art.link, errMsg);
+    if (!body.empty()) {
+        art.content     = std::move(body);
+        state.statusMsg = "";
+        return true;
+    }
+    state.statusMsg = std::string("Fetch failed: ") + errMsg;
+    return false;
 }
 
 // --- パブリック関数 ---
@@ -324,15 +342,7 @@ void uiHandleInput(AppState& state, u32 kDown, u32 kHeld) {
                 Article& art = state.feeds[idx].articles[state.selectedArticle];
                 if ((int)art.content.size() < CONTENT_SHORT_THRESHOLD
                     && !art.link.empty()) {
-                    state.statusMsg = "Loading article...";
-                    std::string errMsg;
-                    std::string body = fetchArticleBody(art.link, errMsg);
-                    if (!body.empty()) {
-                        art.content = std::move(body);
-                        state.statusMsg = "";
-                    } else {
-                        state.statusMsg = std::string("Fetch failed: ") + errMsg;
-                    }
+                    doFetchArticle(art, state, "Loading article...");
                 }
             }
             if (kDown & KEY_B) {
@@ -344,8 +354,20 @@ void uiHandleInput(AppState& state, u32 kDown, u32 kHeld) {
         case Screen::ArticleView: {
             if (kDown & KEY_DOWN) ++state.scrollY;
             if ((kDown & KEY_UP) && state.scrollY > 0) --state.scrollY;
+            if ((kDown & KEY_A)) {
+                Article& art = state.feeds[state.selectedFeed]
+                                    .articles[state.selectedArticle];
+                if (!art.fullFetched && !art.link.empty()) {
+                    if (doFetchArticle(art, state, "Loading full article...")) {
+                        art.fullFetched = true;
+                        state.scrollY   = 0;
+                    }
+                }
+                kDown &= ~KEY_A;
+            }
             if (kDown & KEY_B) {
                 state.currentScreen = Screen::ArticleList;
+                state.statusMsg     = "";
                 kDown &= ~KEY_B;
             }
             break;
