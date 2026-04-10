@@ -1,0 +1,11 @@
+# Build outputs
+*.3dsx
+*.elf
+*.smdh
+build/
+
+# AI agent config (private)
+.claude/
+
+# SD card assets (deploy separately)
+rssreader/
