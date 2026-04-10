@@ -202,10 +202,11 @@ static const char* NOISE_TAGS[]    = {
 };
 static const char* PRIORITY_TAGS[] = { "article", "main", nullptr };
 static const char* CANDIDATE_TAGS[] = { "div", "section", nullptr };
-static const char* TEXT_TAGS[]     = { "p", "pre", "li", nullptr };
+static const char* TEXT_TAGS[]        = { "p", "li", nullptr };
+static const char* SKIP_SUBTREE_TAGS[] = { "pre", nullptr };
 static const char* BLOCK_TAGS[]    = {
     "p","div","br","li","h1","h2","h3","h4","h5","h6",
-    "tr","blockquote","pre", nullptr
+    "tr","blockquote", nullptr
 };
 
 // node のタグ名が name と一致するか（Lexbor は小文字で保持）
@@ -310,6 +311,8 @@ static double ec_scoreCandidate(lxb_dom_node_t* node) {
 
 static lexbor_action_t ec_text_cb(lxb_dom_node_t* node, void* ctx) {
     auto* out = static_cast<std::string*>(ctx);
+    if (node->type == LXB_DOM_NODE_TYPE_ELEMENT && ec_tagIn(node, SKIP_SUBTREE_TAGS))
+        return LEXBOR_ACTION_NEXT;
     if (node->type == LXB_DOM_NODE_TYPE_TEXT) {
         size_t len = 0;
         lxb_char_t* txt = lxb_dom_node_text_content(node, &len);
