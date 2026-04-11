@@ -202,6 +202,21 @@ static const size_t EC_MAX_HTML_BYTES = 256 * 1024; // 256KB
 static const char* NOISE_TAGS[]    = {
     "script","style","noscript","nav","header","footer","aside","form", nullptr
 };
+// class/id 属性のサブストリングで除去するキーワード（Mozilla Readability ベース、保守的に選択）
+// 誤検知リスクを下げるため、意味が明確で短すぎないものに限定している
+static const char* NOISE_CLASS_KW[] = {
+    "share", "sns",                    // SNS シェアボタン
+    "related", "recommend",            // 関連記事
+    "comment", "disqus",               // コメント欄
+    "sidebar",                         // サイドバー
+    "widget",                          // ウィジェット
+    "sponsored", "sponsor", "promo",   // 広告・PR
+    "newsletter", "subscribe",         // メルマガ登録
+    "cookie", "gdpr",                  // Cookie バナー
+    "pagination", "pager",             // ページネーション
+    "tags",                            // 記事タグ一覧（Qiita 等、本文ではない）
+    nullptr
+};
 static const char* PRIORITY_TAGS[] = { "article", "main", nullptr };
 static const char* CANDIDATE_TAGS[] = { "div", "section", nullptr };
 static const char* TEXT_TAGS[]        = { "p", "li", nullptr };
@@ -233,12 +248,70 @@ static bool ec_tagIn(lxb_dom_node_t* node, const char** tags) {
 
 // ---- ノイズ除去（simple_walk + 後処理削除） ----
 
+// 要素の属性値を取得する（存在しなければ nullptr）
+static const lxb_char_t* ec_getAttr(lxb_dom_node_t* node,
+                                     const char* name, size_t* len_out) {
+    if (!node || node->type != LXB_DOM_NODE_TYPE_ELEMENT) return nullptr;
+    return lxb_dom_element_get_attribute(
+        lxb_dom_interface_element(node),
+        reinterpret_cast<const lxb_char_t*>(name), strlen(name), len_out);
+}
+
+// 属性値（class/id）がキーワードリストのいずれかを部分一致で含むか検査する。
+// class は複数トークンをスペース区切りで持つため、トークン単位でチェックする。
+static bool ec_attrContains(const lxb_char_t* val, size_t len,
+                             const char** keywords) {
+    if (!val || len == 0) return false;
+    // トークン（スペース区切り）ごとに各キーワードとの部分一致を確認
+    size_t tok_start = 0;
+    for (size_t i = 0; i <= len; ++i) {
+        bool sep = (i == len || val[i] == ' ');
+        if (!sep) continue;
+        size_t tok_len = i - tok_start;
+        if (tok_len > 0) {
+            for (int ki = 0; keywords[ki]; ++ki) {
+                const char* kw = keywords[ki];
+                size_t kw_len  = strlen(kw);
+                if (kw_len > tok_len) { continue; }
+                for (size_t j = 0; j + kw_len <= tok_len; ++j) {
+                    bool match = true;
+                    for (size_t k = 0; k < kw_len && match; ++k)
+                        match = (tolower((unsigned char)val[tok_start + j + k])
+                                 == (unsigned char)kw[k]);
+                    if (match) return true;
+                }
+            }
+        }
+        tok_start = i + 1;
+    }
+    return false;
+}
+
 static lexbor_action_t ec_noise_collect_cb(lxb_dom_node_t* node, void* ctx) {
     auto* list = static_cast<std::vector<lxb_dom_node_t*>*>(ctx);
+
+    // タグ名による除去（従来通り）
     if (ec_tagIn(node, NOISE_TAGS)) {
         list->push_back(node);
         return LEXBOR_ACTION_NEXT; // サブツリーごと削除するので子はスキップ
     }
+
+    // class/id 属性によるキーワード除去（article/main タグ自体は除外してスキップ）
+    if (node->type == LXB_DOM_NODE_TYPE_ELEMENT
+        && !ec_tagIn(node, PRIORITY_TAGS)) {
+        size_t len = 0;
+        const lxb_char_t* cls = ec_getAttr(node, "class", &len);
+        if (ec_attrContains(cls, len, NOISE_CLASS_KW)) {
+            list->push_back(node);
+            return LEXBOR_ACTION_NEXT;
+        }
+        const lxb_char_t* id = ec_getAttr(node, "id", &len);
+        if (ec_attrContains(id, len, NOISE_CLASS_KW)) {
+            list->push_back(node);
+            return LEXBOR_ACTION_NEXT;
+        }
+    }
+
     return LEXBOR_ACTION_OK;
 }
 
