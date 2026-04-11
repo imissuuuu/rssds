@@ -44,10 +44,10 @@ static constexpr u32 CLR_HINT   = C2D_Color32(0xA0, 0xA0, 0xA0, 0xFF);
 static constexpr u32 CLR_TITLE  = C2D_Color32(0x5c, 0xd4, 0xff, 0xFF);
 static constexpr u32 CLR_ERROR  = C2D_Color32(0xFF, 0x80, 0x80, 0xFF);
 
-static C3D_RenderTarget* topTarget   = nullptr;
-static C3D_RenderTarget* botTarget   = nullptr;
-static C2D_TextBuf       textBuf     = nullptr;
-static C2D_TextBuf       measureBuf  = nullptr;  // 幅測定専用バッファ
+static C3D_RenderTarget* topTarget  = nullptr;
+static C3D_RenderTarget* botTarget  = nullptr;
+static C2D_TextBuf       textBuf    = nullptr;
+static C2D_TextBuf       measureBuf = nullptr;  // 幅測定専用バッファ
 
 // テキストスタイル（将来: Heading2, Bold, Caption 等を追加可能）
 enum class TextStyle { Body, Heading };
@@ -179,6 +179,7 @@ static void drawFeedList(const AppState& state) {
     // 上画面: アプリタイトル
     C2D_TargetClear(topTarget, CLR_BG);
     C2D_SceneBegin(topTarget);
+
     drawStyledText("3DS RSS Reader", TEXT_MARGIN_X, TEXT_MARGIN_Y, 0.5f,
                    TextStyle::Heading);
     drawText("Select a feed on the bottom screen.", TEXT_MARGIN_X, 40.0f, 0.5f,
