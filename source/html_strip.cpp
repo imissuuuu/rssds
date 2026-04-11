@@ -1,7 +1,9 @@
 #include "html_strip.h"
 #include <cctype>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <ctime>
 
 // 中身ごとスキップするタグ
 static bool isSkipContentTag(const char* tag, int len) {
@@ -327,26 +329,75 @@ static lexbor_action_t ec_text_cb(lxb_dom_node_t* node, void* ctx) {
     return LEXBOR_ACTION_OK;
 }
 
+// ---- ログ ----
+
+// 抽出結果を sdmc:/3ds/rssreader/extract_log.txt に追記する。
+// URL が空の場合はログしない（直接呼び出し・テスト用）。
+// 失敗（fopen 失敗）は黙殺（ログはベストエフォート）。
+static void ec_logEntry(const char* url, const char* status,
+                        const char* winner, double score, size_t len) {
+    if (!url || !*url) return;
+
+    FILE* f = fopen("sdmc:/3ds/rssreader/extract_log.txt", "a");
+    if (!f) return;
+
+    time_t now = time(nullptr);
+    const struct tm* tmInfo = localtime(&now);
+    char timestamp[32];
+    if (!tmInfo || strftime(timestamp, sizeof(timestamp),
+                            "%Y-%m-%d %H:%M:%S", tmInfo) == 0) {
+        snprintf(timestamp, sizeof(timestamp), "t=%ld", (long)now);
+    }
+
+    fprintf(f, "[%s] %s\n", timestamp, url);
+    if (winner && *winner) {
+        if (score > 0.0) {
+            fprintf(f, "  status:%s  winner:%s  score:%.1f  len:%lu\n\n",
+                    status, winner, score, (unsigned long)len);
+        } else {
+            fprintf(f, "  status:%s  winner:%s  len:%lu\n\n",
+                    status, winner, (unsigned long)len);
+        }
+    } else {
+        fprintf(f, "  status:%s  len:%lu\n\n",
+                status, (unsigned long)len);
+    }
+
+    fclose(f);
+}
+
 // ---- 公開関数 ----
 
-std::string extractContent(const std::string& html) {
+std::string extractContent(const std::string& html, const std::string& url) {
+    const char* logStatus  = "OK";
+    const char* logWinner  = "";
+    double      logScore   = 0.0;
+
     // 1. 入力サイズ制限（Lexbor 内部の DOM 構築による再帰深さを抑制）
     size_t parse_len = html.size() > EC_MAX_HTML_BYTES ? EC_MAX_HTML_BYTES : html.size();
 
     lxb_html_document_t* doc = lxb_html_document_create();
-    if (!doc) return stripHtml(html);
+    if (!doc) {
+        std::string fb = stripHtml(html);
+        ec_logEntry(url.c_str(), "FALLBACK/doc_create", "", 0.0, fb.size());
+        return fb;
+    }
 
     lxb_status_t st = lxb_html_document_parse(
         doc, (const lxb_char_t*)html.c_str(), parse_len);
     if (st != LXB_STATUS_OK) {
         lxb_html_document_destroy(doc);
-        return stripHtml(html);
+        std::string fb = stripHtml(html);
+        ec_logEntry(url.c_str(), "FALLBACK/parse_err", "", 0.0, fb.size());
+        return fb;
     }
 
     lxb_html_body_element_t* bodyEl = lxb_html_document_body_element(doc);
     if (!bodyEl) {
         lxb_html_document_destroy(doc);
-        return stripHtml(html);
+        std::string fb = stripHtml(html);
+        ec_logEntry(url.c_str(), "FALLBACK/no_body", "", 0.0, fb.size());
+        return fb;
     }
     lxb_dom_node_t* body = lxb_dom_interface_node(bodyEl);
 
@@ -355,6 +406,9 @@ std::string extractContent(const std::string& html) {
 
     // 3. article/main があれば即採用
     lxb_dom_node_t* winner = ec_findPriority(body);
+    if (winner) {
+        logWinner = ec_tagEq(winner, "article") ? "article" : "main";
+    }
 
     // 4. なければ body 直下の div/section をスコアリング
     if (!winner) {
@@ -367,10 +421,17 @@ std::string extractContent(const std::string& html) {
             }
             node = lxb_dom_node_next(node);
         }
+        if (winner) {
+            logScore  = bestScore;
+            logWinner = ec_tagEq(winner, "div") ? "div" : "section";
+        }
     }
 
     // 5. 勝者なしは body 全体
-    if (!winner) winner = body;
+    if (!winner) {
+        winner    = body;
+        logWinner = "body";
+    }
 
     // 6. テキスト化
     std::string result;
@@ -379,7 +440,11 @@ std::string extractContent(const std::string& html) {
 
     lxb_html_document_destroy(doc);
 
-    if (result.empty()) return stripHtml(html);
+    if (result.empty()) {
+        std::string fb = stripHtml(html);
+        ec_logEntry(url.c_str(), "FALLBACK/empty", "", 0.0, fb.size());
+        return fb;
+    }
 
     // 連続空行を正規化
     std::string normalized;
@@ -389,5 +454,7 @@ std::string extractContent(const std::string& html) {
         if (c == '\n') { if (++nlCount <= 2) normalized += c; }
         else           { nlCount = 0; normalized += c; }
     }
+
+    ec_logEntry(url.c_str(), logStatus, logWinner, logScore, normalized.size());
     return normalized;
 }
