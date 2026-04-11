@@ -42,8 +42,9 @@ int main() {
     // メインループ
     while (aptMainLoop()) {
         hidScanInput();
-        u32 kDown = hidKeysDown();
-        u32 kHeld = hidKeysHeld();
+        u32 kDown   = hidKeysDown();
+        u32 kHeld   = hidKeysHeld();
+        u32 kRepeat = hidKeysDownRepeat();
 
         if (kDown & KEY_START) break;
 
@@ -80,7 +81,7 @@ int main() {
             continue;
         }
 
-        uiHandleInput(state, kDown, kHeld);
+        uiHandleInput(state, kDown, kHeld, kRepeat);
 
         C3D_FrameBegin(C3D_FRAME_SYNCDRAW);
         uiDraw(state);

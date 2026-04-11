@@ -26,6 +26,10 @@ static constexpr int   TOP_WRAP_PX         = 375;
 static constexpr int   BOT_WRAP_PX         = 308;
 static constexpr float HEADING_SCALE_FACTOR = 1.3f;
 
+// 記事一覧タイトルの水平スクロール刻み幅(px)
+// 将来: AppConfig::title_scroll_step に置き換え可能なよう1箇所に集約
+static constexpr int   TITLE_SCROLL_STEP_PX = 50;
+
 static constexpr int TOP_MAX_LINES =
     (int)((TOP_H - TEXT_MARGIN_Y * 2) / LINE_HEIGHT);
 static constexpr int BOT_MAX_LINES =
@@ -242,9 +246,25 @@ static void drawArticleList(const AppState& state) {
         if (i == state.selectedArticle) {
             C2D_DrawRectSolid(0, y - 1.0f, 0.0f, BOT_W, LINE_HEIGHT + 1.0f, CLR_SEL_BG);
         }
-        auto lw = wrapText(feed.articles[i].title, BOT_WRAP_PX);
-        std::string label = lw.empty() ? "" : lw.front();
-        drawText(label.c_str(), TEXT_MARGIN_X, y, 0.5f, TEXT_SCALE, TEXT_SCALE, CLR_TEXT);
+
+        const std::string& fullTitle = feed.articles[i].title;
+
+        if (i == state.selectedArticle) {
+            // 選択行: 生タイトルを描画し、水平スクロールを適用。
+            // タイトル末尾が右端に到達したところで止まる（タイトル全体が見える）。
+            float textW    = measureStr(fullTitle.c_str(), TEXT_SCALE);
+            float displayW = (float)BOT_WRAP_PX;
+            float maxScroll = (textW > displayW) ? (textW - displayW) : 0.0f;
+            float effScroll = (float)state.articleListScrollX;
+            if (effScroll > maxScroll) effScroll = maxScroll;
+            drawText(fullTitle.c_str(), TEXT_MARGIN_X - effScroll, y, 0.5f,
+                     TEXT_SCALE, TEXT_SCALE, CLR_TEXT);
+        } else {
+            // 非選択行: 先頭の1行のみを表示（現状維持）
+            auto lw = wrapText(fullTitle, BOT_WRAP_PX);
+            std::string label = lw.empty() ? "" : lw.front();
+            drawText(label.c_str(), TEXT_MARGIN_X, y, 0.5f, TEXT_SCALE, TEXT_SCALE, CLR_TEXT);
+        }
     }
 
     if (total == 0) {
@@ -328,15 +348,17 @@ void uiDraw(const AppState& state) {
     }
 }
 
-void uiHandleInput(AppState& state, u32 kDown, u32 kHeld) {
+void uiHandleInput(AppState& state, u32 kDown, u32 kHeld, u32 kRepeat) {
     (void)kHeld;
+    // D-pad は kRepeat を使用（libctru 組み込みの長押しリピート）。
+    // A/B/START などの確定ボタンは引き続き kDown を使用する。
 
     switch (state.currentScreen) {
         case Screen::FeedList: {
             int total = (int)state.feedConfigs.size();
-            if ((kDown & KEY_DOWN) && state.selectedFeed < total - 1)
+            if ((kRepeat & KEY_DOWN) && state.selectedFeed < total - 1)
                 ++state.selectedFeed;
-            if ((kDown & KEY_UP) && state.selectedFeed > 0)
+            if ((kRepeat & KEY_UP) && state.selectedFeed > 0)
                 --state.selectedFeed;
             if ((kDown & KEY_A) && total > 0) {
                 const FeedConfig& cfg = state.feedConfigs[state.selectedFeed];
@@ -353,10 +375,37 @@ void uiHandleInput(AppState& state, u32 kDown, u32 kHeld) {
         case Screen::ArticleList: {
             int idx   = state.selectedFeed;
             int total = (int)state.feeds[idx].articles.size();
-            if ((kDown & KEY_DOWN) && state.selectedArticle < total - 1)
-                ++state.selectedArticle;
-            if ((kDown & KEY_UP) && state.selectedArticle > 0)
-                --state.selectedArticle;
+            if (total > 0) {
+                if ((kRepeat & KEY_DOWN) && state.selectedArticle < total - 1) {
+                    ++state.selectedArticle;
+                    state.articleListScrollX = 0;
+                }
+                if ((kRepeat & KEY_UP) && state.selectedArticle > 0) {
+                    --state.selectedArticle;
+                    state.articleListScrollX = 0;
+                }
+                // LEFT/RIGHT: 選択タイトルの水平スクロール。
+                // 上限は選択タイトルの実幅に依存するので、ここで算出してクランプする
+                // （state の値が青天井にならないようにするため）。
+                if (kRepeat & (KEY_LEFT | KEY_RIGHT)) {
+                    const std::string& title =
+                        state.feeds[idx].articles[state.selectedArticle].title;
+                    float textW    = measureStr(title.c_str(), TEXT_SCALE);
+                    float displayW = (float)BOT_WRAP_PX;
+                    int maxScroll  = (textW > displayW)
+                        ? (int)(textW - displayW + 0.5f) : 0;
+                    if (kRepeat & KEY_RIGHT) {
+                        state.articleListScrollX += TITLE_SCROLL_STEP_PX;
+                        if (state.articleListScrollX > maxScroll)
+                            state.articleListScrollX = maxScroll;
+                    }
+                    if (kRepeat & KEY_LEFT) {
+                        state.articleListScrollX -= TITLE_SCROLL_STEP_PX;
+                        if (state.articleListScrollX < 0)
+                            state.articleListScrollX = 0;
+                    }
+                }
+            }
             if ((kDown & KEY_A) && total > 0) {
                 state.currentScreen = Screen::ArticleView;
                 state.scrollY       = 0;
@@ -369,14 +418,15 @@ void uiHandleInput(AppState& state, u32 kDown, u32 kHeld) {
                 }
             }
             if (kDown & KEY_B) {
-                state.currentScreen = Screen::FeedList;
+                state.currentScreen      = Screen::FeedList;
+                state.articleListScrollX = 0;
                 kDown &= ~KEY_B;
             }
             break;
         }
         case Screen::ArticleView: {
-            if (kDown & KEY_DOWN) ++state.scrollY;
-            if ((kDown & KEY_UP) && state.scrollY > 0) --state.scrollY;
+            if (kRepeat & KEY_DOWN) ++state.scrollY;
+            if ((kRepeat & KEY_UP) && state.scrollY > 0) --state.scrollY;
             if ((kDown & KEY_A)) {
                 Article& art = state.feeds[state.selectedFeed]
                                     .articles[state.selectedArticle];

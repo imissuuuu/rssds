@@ -17,13 +17,14 @@ struct AppState {
     std::vector<Feed> feeds;
     std::vector<bool> feedLoaded;
 
-    int selectedFeed    = 0;
-    int selectedArticle = 0;
-    int scrollY         = 0;
+    int selectedFeed        = 0;
+    int selectedArticle     = 0;
+    int scrollY             = 0;
+    int articleListScrollX  = 0;  // 記事一覧: 選択タイトルの水平スクロール量(px)
     std::string statusMsg;
 };
 
 void uiInit();
 void uiExit();
 void uiDraw(const AppState& state);
-void uiHandleInput(AppState& state, u32 kDown, u32 kHeld);
+void uiHandleInput(AppState& state, u32 kDown, u32 kHeld, u32 kRepeat);
