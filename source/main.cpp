@@ -6,6 +6,65 @@
 #include "rss.h"
 #include "ui.h"
 
+// ---- 時間ベースキーリピート ----
+// hidKeysDownRepeat() はフレーム単位カウントのため、描画負荷によってスクロール速度が変わる。
+// osGetTime()（ミリ秒）を使って独自計算することでフレームレート非依存にする。
+
+static const u32 REPEAT_KEYS[] = { KEY_UP, KEY_DOWN, KEY_LEFT, KEY_RIGHT };
+static const int NUM_REPEAT_KEYS = 4;
+
+struct KeyRepeatState {
+    u64  holdStart[NUM_REPEAT_KEYS];   // 各キーを押し始めた時刻 (ms)
+    u64  lastFired[NUM_REPEAT_KEYS];   // 直近リピート発火時刻 (ms)
+    bool inRepeat[NUM_REPEAT_KEYS];    // 初動遅延を過ぎてリピート中か
+
+    KeyRepeatState() {
+        for (int i = 0; i < NUM_REPEAT_KEYS; ++i) {
+            holdStart[i] = lastFired[i] = 0;
+            inRepeat[i]  = false;
+        }
+    }
+};
+
+// kDown/kHeld から時間ベースのリピートビットマスクを生成する。
+// 戻り値: kDown（初回押下）＋リピート発火したキーのビットOR
+static u32 computeRepeat(u32 kDown, u32 kHeld,
+                          KeyRepeatState& rs,
+                          u32 delayMs, u32 intervalMs) {
+    u64 now    = osGetTime();
+    u32 result = 0;
+
+    for (int i = 0; i < NUM_REPEAT_KEYS; ++i) {
+        u32 key = REPEAT_KEYS[i];
+
+        if (kDown & key) {
+            // 初回押下: 即時発火＋タイマーリセット
+            result          |= key;
+            rs.holdStart[i]  = now;
+            rs.lastFired[i]  = now;
+            rs.inRepeat[i]   = false;
+        } else if (kHeld & key) {
+            u64 held = now - rs.holdStart[i];
+            if (!rs.inRepeat[i]) {
+                if (held >= delayMs) {
+                    // 初動遅延を超えた → リピート開始
+                    rs.inRepeat[i]  = true;
+                    rs.lastFired[i] = now;
+                    result         |= key;
+                }
+            } else if (now - rs.lastFired[i] >= intervalMs) {
+                // リピート発火
+                rs.lastFired[i] = now;
+                result         |= key;
+            }
+        } else {
+            // キー離し: 状態リセット
+            rs.inRepeat[i] = false;
+        }
+    }
+    return result;
+}
+
 int main() {
     // グラフィックス初期化
     gfxInitDefault();
@@ -39,27 +98,23 @@ int main() {
     state.feeds.resize(state.feedConfigs.size());
     state.feedLoaded.resize(state.feedConfigs.size(), false);
 
-    // 初期リピートパラメータ（リスト操作用）
-    hidSetRepeatParameters(12, 10);
-    Screen prevScreen = state.currentScreen;
+    KeyRepeatState repeatState;
 
     // メインループ
     while (aptMainLoop()) {
-        // 画面遷移時のみリピート感度を切り替え（毎フレーム呼ぶとカウンタがリセットされる）
-        if (state.currentScreen != prevScreen) {
-            if (state.currentScreen == Screen::ArticleView) {
-                hidSetRepeatParameters(8, 4);
-            } else {
-                hidSetRepeatParameters(12, 10);
-            }
-            prevScreen = state.currentScreen;
-        }
         hidScanInput();
-        u32 kDown   = hidKeysDown();
-        u32 kHeld   = hidKeysHeld();
-        u32 kRepeat = hidKeysDownRepeat();
+        u32 kDown = hidKeysDown();
+        u32 kHeld = hidKeysHeld();
 
         if (kDown & KEY_START) break;
+
+        // 画面に応じてリピートパラメータを切り替え
+        u32 kRepeat;
+        if (state.currentScreen == Screen::ArticleView) {
+            kRepeat = computeRepeat(kDown, kHeld, repeatState, 133, 67);
+        } else {
+            kRepeat = computeRepeat(kDown, kHeld, repeatState, 200, 167);
+        }
 
         // Loading 状態: 前フレームで Loading 画面が表示済み → フェッチ実行
         if (state.currentScreen == Screen::Loading) {
