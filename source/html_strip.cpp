@@ -206,14 +206,24 @@ static const char* NOISE_TAGS[]    = {
 // 誤検知リスクを下げるため、意味が明確で短すぎないものに限定している
 static const char* NOISE_CLASS_KW[] = {
     "share", "sns",                    // SNS シェアボタン
+    "social",                          // ソーシャルボタン全般
     "related", "recommend",            // 関連記事
+    "endlink",                         // 関連記事 (ITmedia 固有)
     "comment", "disqus",               // コメント欄
     "sidebar",                         // サイドバー
     "widget",                          // ウィジェット
     "sponsored", "sponsor", "promo",   // 広告・PR
+    "banner",                          // バナー広告
+    "outbrain",                        // 外部レコメンドエンジン
     "newsletter", "subscribe",         // メルマガ登録
     "cookie", "gdpr",                  // Cookie バナー
+    "popup",                           // ポップアップ
     "pagination", "pager",             // ページネーション
+    "breadcrumb",                      // パンくずナビ
+    "masthead",                        // サイトヘッダ領域
+    "menu",                            // メニュー
+    "byline",                          // 著者・更新日時メタ情報
+    "keywords",                        // キーワードタグ一覧
     "tags",                            // 記事タグ一覧（Qiita 等、本文ではない）
     nullptr
 };
