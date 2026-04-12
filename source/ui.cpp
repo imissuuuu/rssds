@@ -15,7 +15,7 @@ static constexpr int   BOT_H          = 240;
 
 // テキスト設定
 static constexpr float TEXT_SCALE     = 0.5f;
-static constexpr float LINE_HEIGHT    = 14.0f;
+static constexpr float LINE_HEIGHT    = 16.0f;
 static constexpr float TEXT_MARGIN_X  = 6.0f;
 static constexpr float TEXT_MARGIN_Y  = 6.0f;
 

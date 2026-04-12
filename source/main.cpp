@@ -39,11 +39,21 @@ int main() {
     state.feeds.resize(state.feedConfigs.size());
     state.feedLoaded.resize(state.feedConfigs.size(), false);
 
-    // 長押しリピートパラメータ（デフォルト: delay=15, interval=5）
-    hidSetRepeatParameters(8, 8);
+    // 初期リピートパラメータ（リスト操作用）
+    hidSetRepeatParameters(12, 10);
+    Screen prevScreen = state.currentScreen;
 
     // メインループ
     while (aptMainLoop()) {
+        // 画面遷移時のみリピート感度を切り替え（毎フレーム呼ぶとカウンタがリセットされる）
+        if (state.currentScreen != prevScreen) {
+            if (state.currentScreen == Screen::ArticleView) {
+                hidSetRepeatParameters(8, 4);
+            } else {
+                hidSetRepeatParameters(12, 10);
+            }
+            prevScreen = state.currentScreen;
+        }
         hidScanInput();
         u32 kDown   = hidKeysDown();
         u32 kHeld   = hidKeysHeld();
