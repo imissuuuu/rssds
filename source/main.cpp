@@ -39,6 +39,9 @@ int main() {
     state.feeds.resize(state.feedConfigs.size());
     state.feedLoaded.resize(state.feedConfigs.size(), false);
 
+    // 長押しリピートパラメータ（デフォルト: delay=15, interval=5）
+    hidSetRepeatParameters(8, 8);
+
     // メインループ
     while (aptMainLoop()) {
         hidScanInput();
