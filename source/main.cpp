@@ -68,6 +68,7 @@ static u32 computeRepeat(u32 kDown, u32 kHeld,
 int main() {
     // グラフィックス初期化
     gfxInitDefault();
+    romfsInit();
     C3D_Init(C3D_DEFAULT_CMDBUF_SIZE);
     C2D_Init(C2D_DEFAULT_MAX_OBJECTS);
     C2D_Prepare();
@@ -161,6 +162,7 @@ int main() {
     if (netOk) netExit();
     C2D_Fini();
     C3D_Fini();
+    romfsExit();
     gfxExit();
     return 0;
 }

@@ -44,10 +44,12 @@ static constexpr u32 CLR_HINT   = C2D_Color32(0xA0, 0xA0, 0xA0, 0xFF);
 static constexpr u32 CLR_TITLE  = C2D_Color32(0x5c, 0xd4, 0xff, 0xFF);
 static constexpr u32 CLR_ERROR  = C2D_Color32(0xFF, 0x80, 0x80, 0xFF);
 
-static C3D_RenderTarget* topTarget  = nullptr;
-static C3D_RenderTarget* botTarget  = nullptr;
-static C2D_TextBuf       textBuf    = nullptr;
-static C2D_TextBuf       measureBuf = nullptr;  // 幅測定専用バッファ
+static C3D_RenderTarget* topTarget    = nullptr;
+static C3D_RenderTarget* botTarget    = nullptr;
+static C2D_TextBuf       textBuf      = nullptr;
+static C2D_TextBuf       measureBuf   = nullptr;  // 幅測定専用バッファ
+static C2D_Font          fallbackFont = nullptr;
+
 
 // テキストスタイル（将来: Heading2, Bold, Caption 等を追加可能）
 enum class TextStyle { Body, Heading };
@@ -66,13 +68,21 @@ static StyleParams resolveStyle(TextStyle style) {
 }
 
 void uiInit() {
-    topTarget  = C2D_CreateScreenTarget(GFX_TOP,    GFX_LEFT);
-    botTarget  = C2D_CreateScreenTarget(GFX_BOTTOM, GFX_LEFT);
-    textBuf    = C2D_TextBufNew(4096);
-    measureBuf = C2D_TextBufNew(512);
+    topTarget    = C2D_CreateScreenTarget(GFX_TOP,    GFX_LEFT);
+    botTarget    = C2D_CreateScreenTarget(GFX_BOTTOM, GFX_LEFT);
+    textBuf      = C2D_TextBufNew(4096);
+    measureBuf   = C2D_TextBufNew(512);
+    fallbackFont = C2D_FontLoad("romfs:/fallback.bcfnt");
+    if (!fallbackFont) {
+        fprintf(stderr, "[ui] fallback font not loaded\n");
+    }
 }
 
 void uiExit() {
+    if (fallbackFont) {
+        C2D_FontFree(fallbackFont);
+        fallbackFont = nullptr;
+    }
     C2D_TextBufDelete(measureBuf);
     measureBuf = nullptr;
     C2D_TextBufDelete(textBuf);
@@ -81,12 +91,54 @@ void uiExit() {
 
 // --- ヘルパー ---
 
+// UTF-8 1文字をデコードしコードポイントとバイト数を返す。
+// 不正バイトは U+FFFD として 1 バイト進める。
+static uint32_t utf8Decode(const char* s, int& outBytes) {
+    unsigned char c = (unsigned char)s[0];
+    if (c < 0x80)            { outBytes = 1; return c; }
+    if ((c & 0xE0) == 0xC0)  { outBytes = 2; return ((c & 0x1F) << 6)  | ((unsigned char)s[1] & 0x3F); }
+    if ((c & 0xF0) == 0xE0)  { outBytes = 3; return ((c & 0x0F) << 12) | (((unsigned char)s[1] & 0x3F) << 6) | ((unsigned char)s[2] & 0x3F); }
+    if ((c & 0xF8) == 0xF0)  { outBytes = 4; return ((c & 0x07) << 18) | (((unsigned char)s[1] & 0x3F) << 12) | (((unsigned char)s[2] & 0x3F) << 6) | ((unsigned char)s[3] & 0x3F); }
+    outBytes = 1; return 0xFFFD;
+}
+
+// システムフォントにグリフがあるか（alterCharIndex と一致しなければあり）
+static bool systemHasGlyph(uint32_t cp) {
+    CFNT_s* sys   = fontGetSystemFont();
+    int     alter = sys->finf.alterCharIndex;
+    return fontGlyphIndexFromCodePoint(sys, cp) != alter;
+}
+
 static void drawText(const char* str, float x, float y, float z,
                      float sx, float sy, u32 color) {
-    C2D_Text text;
-    C2D_TextParse(&text, textBuf, str);
-    C2D_TextOptimize(&text);
-    C2D_DrawText(&text, C2D_WithColor, x, y, z, sx, sy, color);
+    if (!fallbackFont) {
+        C2D_Text text;
+        C2D_TextParse(&text, textBuf, str);
+        C2D_TextOptimize(&text);
+        C2D_DrawText(&text, C2D_WithColor, x, y, z, sx, sy, color);
+        return;
+    }
+    float  cursorX = x;
+    size_t n = strlen(str), i = 0;
+    while (i < n) {
+        int      bytes;
+        uint32_t cp     = utf8Decode(str + i, bytes);
+        bool     useSys = systemHasGlyph(cp);
+        size_t   j      = i + bytes;
+        while (j < n) {
+            int nb; uint32_t ncp = utf8Decode(str + j, nb);
+            if (systemHasGlyph(ncp) != useSys) break;
+            j += nb;
+        }
+        std::string chunk(str + i, j - i);
+        C2D_Text text;
+        if (useSys) C2D_TextParse    (&text, textBuf, chunk.c_str());
+        else        C2D_TextFontParse(&text, fallbackFont, textBuf, chunk.c_str());
+        C2D_TextOptimize(&text);
+        C2D_DrawText(&text, C2D_WithColor, cursorX, y, z, sx, sy, color);
+        cursorX += text.width * sx;
+        i = j;
+    }
 }
 
 static void drawStyledText(const char* str, float x, float y,
@@ -107,9 +159,31 @@ static int utf8CharPx(unsigned char lead) {
 // citro2d の実幅（scale=1.0 時の width）を返す
 static float measureStr(const char* str, float scale) {
     C2D_TextBufClear(measureBuf);
-    C2D_Text t;
-    C2D_TextParse(&t, measureBuf, str);
-    return t.width * scale;
+    if (!fallbackFont) {
+        C2D_Text t;
+        C2D_TextParse(&t, measureBuf, str);
+        return t.width * scale;
+    }
+    float  total = 0.0f;
+    size_t n = strlen(str), i = 0;
+    while (i < n) {
+        int      bytes;
+        uint32_t cp     = utf8Decode(str + i, bytes);
+        bool     useSys = systemHasGlyph(cp);
+        size_t   j      = i + bytes;
+        while (j < n) {
+            int nb; uint32_t ncp = utf8Decode(str + j, nb);
+            if (systemHasGlyph(ncp) != useSys) break;
+            j += nb;
+        }
+        std::string chunk(str + i, j - i);
+        C2D_Text t;
+        if (useSys) C2D_TextParse    (&t, measureBuf, chunk.c_str());
+        else        C2D_TextFontParse(&t, fallbackFont, measureBuf, chunk.c_str());
+        total += t.width;
+        i = j;
+    }
+    return total * scale;
 }
 
 // str の末尾 UTF-8 文字を削除しながら maxPx 以内に収める
@@ -189,7 +263,7 @@ static void drawFeedList(const AppState& state) {
                  TEXT_SCALE, TEXT_SCALE, CLR_ERROR);
     }
 
-    // 下画面: フィード一覧（feedConfigs から名前を取得）
+// 下画面: フィード一覧（feedConfigs から名前を取得）
     C2D_TargetClear(botTarget, CLR_PANEL);
     C2D_SceneBegin(botTarget);
 

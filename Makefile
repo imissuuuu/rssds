@@ -18,6 +18,10 @@ INCLUDES	:=	include lib/tinyxml2 lib/nlohmann lib/lexbor
 GRAPHICS	:=	gfx
 ROMFS		:=	romfs
 
+FALLBACK_FONT  := $(CURDIR)/romfs/fallback.bcfnt
+FONT_TTF       := $(CURDIR)/assets/fonts/NotoSansSymbols2-Regular.ttf
+FONT_WHITELIST := $(CURDIR)/assets/fonts/symbols_whitelist.txt
+
 APP_TITLE		:= RSS Reader
 APP_DESCRIPTION	:= RSS Feed Reader for Nintendo 3DS
 APP_AUTHOR		:=
@@ -97,7 +101,11 @@ endif
 
 .PHONY: $(BUILD) clean all
 
-all: $(BUILD)
+all: $(FALLBACK_FONT) $(BUILD)
+
+$(FALLBACK_FONT): $(FONT_TTF) $(FONT_WHITELIST)
+	@echo "mkbcfnt: generating fallback.bcfnt"
+	@mkbcfnt -w $(FONT_WHITELIST) -o $@ $(FONT_TTF)
 
 $(BUILD):
 	@[ -d $@ ] || mkdir -p $@
@@ -105,7 +113,7 @@ $(BUILD):
 
 clean:
 	@echo clean ...
-	@rm -fr $(BUILD) $(TARGET).3dsx $(OUTPUT).smdh $(TARGET).elf
+	@rm -fr $(BUILD) $(TARGET).3dsx $(OUTPUT).smdh $(TARGET).elf $(FALLBACK_FONT)
 
 #---------------------------------------------------------------------------------
 else
