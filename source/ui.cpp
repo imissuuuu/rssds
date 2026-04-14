@@ -28,7 +28,7 @@ static constexpr float TOP_CONTENT_Y  = STATUSBAR_H + TEXT_MARGIN_Y;  // 20.0f
 
 // テキスト折り返し用ピクセル幅
 // wrapText の高速推定用。citro2d による実幅検証で最終的に正確にトリムされる
-static constexpr int   TOP_WRAP_PX         = 375;
+static constexpr int   TOP_WRAP_PX         = 388;
 static constexpr int   BOT_WRAP_PX         = 308;
 static constexpr float HEADING_SCALE_FACTOR = 1.3f;
 
@@ -238,9 +238,8 @@ static std::vector<std::string> wrapText(const std::string& src, int maxPixels,
             pos  = split;
         }
 
-        // 推定が上限の90%以上の場合のみ実幅検証（大半の行はスキップ）
-        if (px * 10 >= maxPixels * 9)
-            trimToWidth(line, maxPixels, scale);
+        // 全行で実幅検証（高速推定の過小評価によるオーバーフローを防止）
+        trimToWidth(line, maxPixels, scale);
         lines.push_back(std::move(line));
     }
     return lines;
