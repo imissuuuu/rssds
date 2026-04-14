@@ -1,9 +1,11 @@
 #include "ui.h"
 #include "html_strip.h"
 #include "article.h"
+#include "settings.h"
 #include <citro2d.h>
 #include <cstdio>
 #include <cstring>
+#include <ctime>
 
 static constexpr int CONTENT_SHORT_THRESHOLD = 200;
 
@@ -19,6 +21,10 @@ static constexpr float LINE_HEIGHT    = 16.0f;
 static constexpr float TEXT_MARGIN_X  = 6.0f;
 static constexpr float TEXT_MARGIN_Y  = 6.0f;
 
+// ステータスバー
+static constexpr float STATUSBAR_H    = 14.0f;
+static constexpr float TOP_CONTENT_Y  = STATUSBAR_H + TEXT_MARGIN_Y;  // 20.0f
+
 
 // テキスト折り返し用ピクセル幅
 // wrapText の高速推定用。citro2d による実幅検証で最終的に正確にトリムされる
@@ -31,7 +37,7 @@ static constexpr float HEADING_SCALE_FACTOR = 1.3f;
 static constexpr int   TITLE_SCROLL_STEP_PX = 50;
 
 static constexpr int TOP_MAX_LINES =
-    (int)((TOP_H - TEXT_MARGIN_Y * 2) / LINE_HEIGHT);
+    (int)((TOP_H - STATUSBAR_H - TEXT_MARGIN_Y * 2) / LINE_HEIGHT);
 static constexpr int BOT_MAX_LINES =
     (int)((BOT_H - 30.0f) / LINE_HEIGHT);  // 30px は下部ガイド
 
@@ -49,6 +55,12 @@ static C3D_RenderTarget* botTarget    = nullptr;
 static C2D_TextBuf       textBuf      = nullptr;
 static C2D_TextBuf       measureBuf   = nullptr;  // 幅測定専用バッファ
 static C2D_Font          fallbackFont = nullptr;
+
+// ステータスバー用キャッシュ（5秒ごとに更新）
+static u8  s_battLevel    = 3;
+static u8  s_battCharging = 0;
+static u8  s_wifiStatus   = 0;  // 0-3: osGetWifiStrength()
+static u64 s_statusLastMs = 0;
 
 
 // テキストスタイル（将来: Heading2, Bold, Caption 等を追加可能）
@@ -234,16 +246,82 @@ static std::vector<std::string> wrapText(const std::string& src, int maxPixels,
     return lines;
 }
 
+// --- 設定画面用定数 ---
+
+static const int SCROLL_DELAY_OPTIONS[]    = { 200, 300, 400, 500 };
+static const int SCROLL_INTERVAL_OPTIONS[] = { 50, 80, 120, 160 };
+static const int NUM_DELAY_OPTS            = 4;
+static const int NUM_INTERVAL_OPTS         = 4;
+
+// arr[0..n-1] 内で val のインデックスを返す。見つからなければ 0。
+static int findIndex(const int* arr, int n, int val) {
+    for (int i = 0; i < n; ++i) if (arr[i] == val) return i;
+    return 0;
+}
+
+// --- ステータスバー ---
+
+static void drawStatusBar() {
+    // バッテリー・WiFi: 5秒ごとに更新
+    u64 now = osGetTime();
+    if (now - s_statusLastMs > 5000) {
+        PTMU_GetBatteryLevel(&s_battLevel);
+        PTMU_GetBatteryChargeState(&s_battCharging);
+        s_wifiStatus   = osGetWifiStrength();
+        s_statusLastMs = now;
+    }
+
+    // 現在時刻
+    time_t t = time(nullptr);
+    struct tm* tm_info = localtime(&t);
+    char timeBuf[8];
+    snprintf(timeBuf, sizeof(timeBuf), "%02d:%02d",
+             tm_info->tm_hour, tm_info->tm_min);
+
+    // WiFi バー (■=U+25A0, □=U+25A1 — ホワイトリスト済み)
+    static const char* WIFI_BARS[4] = {
+        "\xe2\x96\xa1\xe2\x96\xa1\xe2\x96\xa1",  // □□□
+        "\xe2\x96\xa0\xe2\x96\xa1\xe2\x96\xa1",  // ■□□
+        "\xe2\x96\xa0\xe2\x96\xa0\xe2\x96\xa1",  // ■■□
+        "\xe2\x96\xa0\xe2\x96\xa0\xe2\x96\xa0",  // ■■■
+    };
+    u8 wifiIdx = s_wifiStatus < 4 ? s_wifiStatus : 3;
+
+    // バッテリー文字列（0-5段階 → 20%単位）
+    char battBuf[12];
+    int pct = (int)s_battLevel * 20;
+    if (s_battCharging)
+        snprintf(battBuf, sizeof(battBuf), "%d%%+", pct);
+    else
+        snprintf(battBuf, sizeof(battBuf), "%d%%",  pct);
+
+    // 右端表示: WiFi バー + スペース + バッテリー
+    char rightBuf[32];
+    snprintf(rightBuf, sizeof(rightBuf), "%s %s", WIFI_BARS[wifiIdx], battBuf);
+
+    // 背景帯
+    C2D_DrawRectSolid(0, 0, 0.5f, TOP_W, STATUSBAR_H, CLR_PANEL);
+
+    // 時刻（左端）
+    drawText(timeBuf, TEXT_MARGIN_X, 1.0f, 0.5f, 0.42f, 0.42f, CLR_HINT);
+
+    // WiFi + バッテリー（右端）
+    float rightW = measureStr(rightBuf, 0.42f);
+    drawText(rightBuf, TOP_W - rightW - TEXT_MARGIN_X, 1.0f, 0.5f,
+             0.42f, 0.42f, CLR_HINT);
+}
+
 // --- 各画面の描画 ---
 
 static void drawLoadingScreen(const AppState& state) {
     C2D_TargetClear(topTarget, CLR_BG);
     C2D_SceneBegin(topTarget);
-    drawText("Loading...", TEXT_MARGIN_X, TOP_H / 2.0f - 14.0f,
+    drawStatusBar();
+    drawText("Loading...", TEXT_MARGIN_X, TOP_H / 2.0f - 14.0f + STATUSBAR_H / 2.0f,
              0.5f, TEXT_SCALE * 1.2f, TEXT_SCALE * 1.2f, CLR_TITLE);
     if (!state.statusMsg.empty()) {
         drawText(state.statusMsg.c_str(), TEXT_MARGIN_X,
-                 TOP_H / 2.0f + 4.0f, 0.5f, TEXT_SCALE, TEXT_SCALE, CLR_HINT);
+                 TOP_H / 2.0f + 4.0f + STATUSBAR_H / 2.0f, 0.5f, TEXT_SCALE, TEXT_SCALE, CLR_HINT);
     }
     C2D_TargetClear(botTarget, CLR_PANEL);
     C2D_SceneBegin(botTarget);
@@ -253,43 +331,47 @@ static void drawFeedList(const AppState& state) {
     // 上画面: アプリタイトル
     C2D_TargetClear(topTarget, CLR_BG);
     C2D_SceneBegin(topTarget);
+    drawStatusBar();
 
-    drawStyledText("3DS RSS Reader", TEXT_MARGIN_X, TEXT_MARGIN_Y, 0.5f,
+    drawStyledText("3DS RSS Reader", TEXT_MARGIN_X, TOP_CONTENT_Y, 0.5f,
                    TextStyle::Heading);
-    drawText("Select a feed on the bottom screen.", TEXT_MARGIN_X, 40.0f, 0.5f,
-             TEXT_SCALE, TEXT_SCALE, CLR_HINT);
+    drawText("Select a feed on the bottom screen.", TEXT_MARGIN_X,
+             40.0f + STATUSBAR_H, 0.5f, TEXT_SCALE, TEXT_SCALE, CLR_HINT);
     if (!state.statusMsg.empty()) {
-        drawText(state.statusMsg.c_str(), TEXT_MARGIN_X, 70.0f, 0.5f,
+        drawText(state.statusMsg.c_str(), TEXT_MARGIN_X, 70.0f + STATUSBAR_H, 0.5f,
                  TEXT_SCALE, TEXT_SCALE, CLR_ERROR);
     }
 
-// 下画面: フィード一覧（feedConfigs から名前を取得）
+    // 下画面: フィード一覧 + Settings エントリ（feedConfigs から名前を取得）
     C2D_TargetClear(botTarget, CLR_PANEL);
     C2D_SceneBegin(botTarget);
 
-    int total = (int)state.feedConfigs.size();
+    int feedCount = (int)state.feedConfigs.size();
+    int total     = feedCount + 1;  // +1 for Settings entry
     int start = state.selectedFeed - BOT_MAX_LINES / 2;
     if (start < 0) start = 0;
     if (start > total - BOT_MAX_LINES && total > BOT_MAX_LINES)
         start = total - BOT_MAX_LINES;
 
+    char label[256];
     for (int i = start; i < total && (i - start) < BOT_MAX_LINES; ++i) {
         float y = TEXT_MARGIN_Y + (float)(i - start) * LINE_HEIGHT;
         if (i == state.selectedFeed) {
             C2D_DrawRectSolid(0, y - 1.0f, 0.0f, BOT_W, LINE_HEIGHT + 1.0f, CLR_SEL_BG);
         }
-        char label[256];
-        snprintf(label, sizeof(label), "%s",
-                 state.feedConfigs[i].name.c_str());
+        if (i < feedCount)
+            snprintf(label, sizeof(label), "%s", state.feedConfigs[i].name.c_str());
+        else
+            snprintf(label, sizeof(label), "[Settings]");
         drawText(label, TEXT_MARGIN_X, y, 0.5f, TEXT_SCALE, TEXT_SCALE, CLR_TEXT);
     }
 
-    if (total == 0) {
+    if (feedCount == 0) {
         drawText("No feeds. Add feeds.json to SD card.", TEXT_MARGIN_X,
-                 TEXT_MARGIN_Y, 0.5f, TEXT_SCALE, TEXT_SCALE, CLR_HINT);
+                 TEXT_MARGIN_Y + LINE_HEIGHT, 0.5f, TEXT_SCALE, TEXT_SCALE, CLR_HINT);
     }
 
-    drawText("Up/Down:move  A:open  START:quit", TEXT_MARGIN_X, BOT_H - 16.0f,
+    drawText("Up/Down:move  A:open/enter  START:quit", TEXT_MARGIN_X, BOT_H - 16.0f,
              0.5f, 0.42f, 0.42f, CLR_HINT);
 }
 
@@ -300,10 +382,11 @@ static void drawArticleList(const AppState& state) {
     // 上画面: フィードタイトル（feeds に title がなければ feedConfigs の name を使用）
     C2D_TargetClear(topTarget, CLR_BG);
     C2D_SceneBegin(topTarget);
+    drawStatusBar();
     const std::string& title = feed.title.empty()
         ? state.feedConfigs[idx].name
         : feed.title;
-    drawStyledText(title.c_str(), TEXT_MARGIN_X, TEXT_MARGIN_Y, 0.5f,
+    drawStyledText(title.c_str(), TEXT_MARGIN_X, TOP_CONTENT_Y, 0.5f,
                    TextStyle::Heading);
 
     // 下画面: 記事一覧
@@ -361,13 +444,14 @@ static void drawArticleView(const AppState& state) {
     // 上画面: 本文
     C2D_TargetClear(topTarget, CLR_BG);
     C2D_SceneBegin(topTarget);
+    drawStatusBar();
 
     int totalLines = (int)lines.size();
     int maxScroll  = totalLines > TOP_MAX_LINES ? totalLines - TOP_MAX_LINES : 0;
     int scroll     = state.scrollY < maxScroll ? state.scrollY : maxScroll;
 
     for (int i = 0; i < TOP_MAX_LINES && (scroll + i) < totalLines; ++i) {
-        float y = TEXT_MARGIN_Y + (float)i * LINE_HEIGHT;
+        float y = TOP_CONTENT_Y + (float)i * LINE_HEIGHT;
         drawText(lines[scroll + i].c_str(), TEXT_MARGIN_X, y, 0.5f,
                  TEXT_SCALE, TEXT_SCALE, CLR_TEXT);
     }
@@ -394,6 +478,41 @@ static void drawArticleView(const AppState& state) {
     drawText(guide, TEXT_MARGIN_X, BOT_H - 16.0f, 0.5f, 0.42f, 0.42f, CLR_HINT);
 }
 
+static void drawSettings(const AppState& state) {
+    // 上画面: タイトル
+    C2D_TargetClear(topTarget, CLR_BG);
+    C2D_SceneBegin(topTarget);
+    drawStatusBar();
+    drawStyledText("Settings", TEXT_MARGIN_X, TOP_CONTENT_Y, 0.5f, TextStyle::Heading);
+
+    // 下画面: 設定項目
+    C2D_TargetClear(botTarget, CLR_PANEL);
+    C2D_SceneBegin(botTarget);
+
+    struct Item { const char* label; int value; bool isAction; };
+    const Item items[3] = {
+        { "Scroll Delay",    state.settings.scrollRepeatDelayMs,    false },
+        { "Scroll Interval", state.settings.scrollRepeatIntervalMs, false },
+        { "Save",            0,                                      true  },
+    };
+
+    char buf[64];
+    for (int i = 0; i < 3; ++i) {
+        float y = TEXT_MARGIN_Y + (float)i * LINE_HEIGHT;
+        if (i == state.settingsSelectedItem) {
+            C2D_DrawRectSolid(0, y - 1.0f, 0.0f, BOT_W, LINE_HEIGHT + 1.0f, CLR_SEL_BG);
+        }
+        if (items[i].isAction)
+            snprintf(buf, sizeof(buf), "%s", items[i].label);
+        else
+            snprintf(buf, sizeof(buf), "%-18s < %d ms >", items[i].label, items[i].value);
+        drawText(buf, TEXT_MARGIN_X, y, 0.5f, TEXT_SCALE, TEXT_SCALE, CLR_TEXT);
+    }
+
+    drawText("Up/Down:select  L/R:change  A:save  B:back",
+             TEXT_MARGIN_X, BOT_H - 16.0f, 0.5f, 0.42f, 0.42f, CLR_HINT);
+}
+
 // --- フェッチヘルパー ---
 
 // art.link からHTMLを取得してart.contentを更新する。成功時trueを返す。
@@ -416,10 +535,11 @@ void uiDraw(const AppState& state) {
     C2D_TextBufClear(textBuf);
 
     switch (state.currentScreen) {
-        case Screen::FeedList:    drawFeedList(state);    break;
+        case Screen::FeedList:    drawFeedList(state);      break;
         case Screen::Loading:     drawLoadingScreen(state); break;
-        case Screen::ArticleList: drawArticleList(state); break;
-        case Screen::ArticleView: drawArticleView(state); break;
+        case Screen::ArticleList: drawArticleList(state);   break;
+        case Screen::ArticleView: drawArticleView(state);   break;
+        case Screen::Settings:    drawSettings(state);      break;
     }
 }
 
@@ -430,16 +550,24 @@ void uiHandleInput(AppState& state, u32 kDown, u32 kHeld, u32 kRepeat) {
 
     switch (state.currentScreen) {
         case Screen::FeedList: {
-            int total = (int)state.feedConfigs.size();
+            int feedCount = (int)state.feedConfigs.size();
+            int total     = feedCount + 1;  // +1 for Settings entry
             if ((kRepeat & KEY_DOWN) && state.selectedFeed < total - 1)
                 ++state.selectedFeed;
             if ((kRepeat & KEY_UP) && state.selectedFeed > 0)
                 --state.selectedFeed;
             if ((kDown & KEY_A) && total > 0) {
-                const FeedConfig& cfg = state.feedConfigs[state.selectedFeed];
-                state.statusMsg = cfg.name.empty() ? cfg.url : cfg.name;
-                state.currentScreen   = Screen::Loading;
-                state.selectedArticle = 0;
+                if (state.selectedFeed == feedCount) {
+                    // Settings エントリ
+                    state.currentScreen       = Screen::Settings;
+                    state.settingsSelectedItem = 0;
+                } else {
+                    // 実フィードを開く
+                    const FeedConfig& cfg = state.feedConfigs[state.selectedFeed];
+                    state.statusMsg       = cfg.name.empty() ? cfg.url : cfg.name;
+                    state.currentScreen   = Screen::Loading;
+                    state.selectedArticle = 0;
+                }
                 kDown &= ~KEY_A;  // coding-patterns #6
             }
             break;
@@ -495,6 +623,42 @@ void uiHandleInput(AppState& state, u32 kDown, u32 kHeld, u32 kRepeat) {
             if (kDown & KEY_B) {
                 state.currentScreen      = Screen::FeedList;
                 state.articleListScrollX = 0;
+                kDown &= ~KEY_B;
+            }
+            break;
+        }
+        case Screen::Settings: {
+            if ((kRepeat & KEY_UP)   && state.settingsSelectedItem > 0)
+                --state.settingsSelectedItem;
+            if ((kRepeat & KEY_DOWN) && state.settingsSelectedItem < 2)
+                ++state.settingsSelectedItem;
+
+            // 値変更（Save 行では無効）
+            if (state.settingsSelectedItem == 0) {
+                int idx = findIndex(SCROLL_DELAY_OPTIONS, NUM_DELAY_OPTS,
+                                    state.settings.scrollRepeatDelayMs);
+                if ((kRepeat & KEY_RIGHT) && idx < NUM_DELAY_OPTS - 1)
+                    state.settings.scrollRepeatDelayMs = SCROLL_DELAY_OPTIONS[idx + 1];
+                if ((kRepeat & KEY_LEFT)  && idx > 0)
+                    state.settings.scrollRepeatDelayMs = SCROLL_DELAY_OPTIONS[idx - 1];
+            } else if (state.settingsSelectedItem == 1) {
+                int idx = findIndex(SCROLL_INTERVAL_OPTIONS, NUM_INTERVAL_OPTS,
+                                    state.settings.scrollRepeatIntervalMs);
+                if ((kRepeat & KEY_RIGHT) && idx < NUM_INTERVAL_OPTS - 1)
+                    state.settings.scrollRepeatIntervalMs = SCROLL_INTERVAL_OPTIONS[idx + 1];
+                if ((kRepeat & KEY_LEFT)  && idx > 0)
+                    state.settings.scrollRepeatIntervalMs = SCROLL_INTERVAL_OPTIONS[idx - 1];
+            }
+
+            // A (Save 行) → 保存して戻る
+            if ((kDown & KEY_A) && state.settingsSelectedItem == 2) {
+                settingsSave(state.settings);
+                state.currentScreen = Screen::FeedList;
+                kDown &= ~KEY_A;
+            }
+            // B → 保存せずに戻る
+            if (kDown & KEY_B) {
+                state.currentScreen = Screen::FeedList;
                 kDown &= ~KEY_B;
             }
             break;

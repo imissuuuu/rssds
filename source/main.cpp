@@ -5,6 +5,7 @@
 #include "feed_config.h"
 #include "rss.h"
 #include "ui.h"
+#include "settings.h"
 
 // ---- 時間ベースキーリピート ----
 // hidKeysDownRepeat() はフレーム単位カウントのため、描画負荷によってスクロール速度が変わる。
@@ -72,6 +73,7 @@ int main() {
     C3D_Init(C3D_DEFAULT_CMDBUF_SIZE);
     C2D_Init(C2D_DEFAULT_MAX_OBJECTS);
     C2D_Prepare();
+    ptmuInit();
 
     uiInit();
 
@@ -99,6 +101,8 @@ int main() {
     state.feeds.resize(state.feedConfigs.size());
     state.feedLoaded.resize(state.feedConfigs.size(), false);
 
+    settingsLoad(state.settings);
+
     KeyRepeatState repeatState;
 
     // メインループ
@@ -112,7 +116,9 @@ int main() {
         // 画面に応じてリピートパラメータを切り替え
         u32 kRepeat;
         if (state.currentScreen == Screen::ArticleView) {
-            kRepeat = computeRepeat(kDown, kHeld, repeatState, 133, 67);
+            kRepeat = computeRepeat(kDown, kHeld, repeatState,
+                                    (u32)state.settings.scrollRepeatDelayMs,
+                                    (u32)state.settings.scrollRepeatIntervalMs);
         } else {
             kRepeat = computeRepeat(kDown, kHeld, repeatState, 200, 167);
         }
@@ -159,6 +165,7 @@ int main() {
 
     // 終了処理（coding-patterns #2 の順序を遵守）
     uiExit();
+    ptmuExit();
     if (netOk) netExit();
     C2D_Fini();
     C3D_Fini();
