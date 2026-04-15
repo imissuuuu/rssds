@@ -26,6 +26,12 @@ struct AppState {
 
     AppSettings settings;
     int settingsSelectedItem = 0;
+
+    // ArticleView 描画キャッシュ（毎フレームの wrapText 再計算を防ぐ）
+    mutable std::vector<std::string> articleLines;
+    mutable int cachedLineFeed    = -1;
+    mutable int cachedLineArticle = -1;
+    mutable size_t cachedLineContentSize = 0;
 };
 
 void uiInit();

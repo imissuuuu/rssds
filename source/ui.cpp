@@ -437,8 +437,17 @@ static void drawArticleView(const AppState& state) {
     const Article& art =
         state.feeds[state.selectedFeed].articles[state.selectedArticle];
 
-    std::string plain = stripHtml(art.content);
-    std::vector<std::string> lines = wrapText(plain, TOP_WRAP_PX);
+    // キャッシュが無効なら再計算（フィード・記事・本文サイズのいずれかが変わった場合）
+    if (state.cachedLineFeed    != state.selectedFeed
+     || state.cachedLineArticle != state.selectedArticle
+     || state.cachedLineContentSize != art.content.size()) {
+        std::string plain = stripHtml(art.content);
+        state.articleLines          = wrapText(plain, TOP_WRAP_PX);
+        state.cachedLineFeed        = state.selectedFeed;
+        state.cachedLineArticle     = state.selectedArticle;
+        state.cachedLineContentSize = art.content.size();
+    }
+    const std::vector<std::string>& lines = state.articleLines;
 
     // 上画面: 本文
     C2D_TargetClear(topTarget, CLR_BG);
