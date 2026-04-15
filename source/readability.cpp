@@ -47,8 +47,9 @@ static const char* POST_NOISE_KW[] = {
 
 // タグごとの base score（Readability.js 準拠）
 static const char* BLOCK_TAGS[]     = { "p","div","br","li","h1","h2","h3",
-                                         "h4","h5","h6","tr","blockquote",nullptr };
-static const char* SKIP_SUBTREE[]   = { "pre", nullptr };
+                                         "h4","h5","h6","tr","blockquote",
+                                         "pre",nullptr };
+static const char* SKIP_SUBTREE[]   = { nullptr };
 
 // =============================================================================
 // ユーティリティ
