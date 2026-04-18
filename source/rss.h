@@ -8,6 +8,7 @@ struct Article {
     std::string content;  // HTML or plaintext (フィード由来)
     std::string pubDate;
     bool fullFetched = false;  // true: リンク先から全文取得済み
+    std::vector<std::string> imageUrls;  // 本文から抽出した画像URL（最大10件）
 };
 
 struct Feed {

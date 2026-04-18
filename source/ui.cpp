@@ -443,6 +443,23 @@ static void drawArticleView(const AppState& state) {
      || state.cachedLineContentSize != art.content.size()) {
         std::string plain = stripHtml(art.content);
         state.articleLines          = wrapText(plain, TOP_WRAP_PX);
+        // Stage 1: 画像URLを末尾にテキストとして追加（Stage 2 で実画像描画へ差し替え）
+        if (!art.imageUrls.empty()) {
+            if (!state.articleLines.empty() && !state.articleLines.back().empty())
+                state.articleLines.push_back("");
+            char header[64];
+            snprintf(header, sizeof(header), "-- Images (%d) --",
+                     (int)art.imageUrls.size());
+            state.articleLines.push_back(header);
+            for (size_t i = 0; i < art.imageUrls.size(); ++i) {
+                char label[16];
+                snprintf(label, sizeof(label), "[%zu] ", i + 1);
+                std::vector<std::string> urlLines =
+                    wrapText(std::string(label) + art.imageUrls[i], TOP_WRAP_PX);
+                for (auto& l : urlLines)
+                    state.articleLines.push_back(std::move(l));
+            }
+        }
         state.cachedLineFeed        = state.selectedFeed;
         state.cachedLineArticle     = state.selectedArticle;
         state.cachedLineContentSize = art.content.size();
@@ -527,9 +544,10 @@ static void drawSettings(const AppState& state) {
 static bool doFetchArticle(Article& art, AppState& state, const char* loadingMsg) {
     state.statusMsg = loadingMsg;
     std::string errMsg;
-    std::string body = fetchArticleBody(art.link, errMsg);
-    if (!body.empty()) {
-        art.content     = std::move(body);
+    FetchedArticle fetched = fetchArticleBody2(art.link, errMsg);
+    if (!fetched.body.empty()) {
+        art.content     = std::move(fetched.body);
+        art.imageUrls   = std::move(fetched.imageUrls);
         state.statusMsg = "";
         return true;
     }
