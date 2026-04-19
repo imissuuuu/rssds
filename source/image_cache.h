@@ -41,6 +41,11 @@ public:
 
     const CachedImage* get(const std::string& url) const;
 
+    // Pending 中の URL のダウンロード進捗 (0.0-1.0)。
+    float getProgress(const std::string& url) {
+        return loader_ ? loader_->getProgress(url) : -1.0f;
+    }
+
 private:
     void uploadOne(DecodedImage&& d, const std::unordered_set<std::string>& visible);
     void releaseAll();

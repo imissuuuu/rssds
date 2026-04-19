@@ -186,6 +186,17 @@ struct BinaryCtx {
     size_t                maxBytes;
     bool                  aborted;
 };
+
+struct XferCtxWrap {
+    XferInfoFn fn;
+    void*      ud;
+};
+}
+
+static int curlXferCb(void* ud, curl_off_t dltotal, curl_off_t dlnow,
+                       curl_off_t, curl_off_t) {
+    auto* w = static_cast<XferCtxWrap*>(ud);
+    return w->fn(w->ud, (int64_t)dltotal, (int64_t)dlnow);
 }
 
 static size_t writeBinaryCallback(char* ptr, size_t sz, size_t nm, void* ud) {
@@ -204,7 +215,9 @@ static size_t writeBinaryCallback(char* ptr, size_t sz, size_t nm, void* ud) {
 
 std::vector<uint8_t> httpGetBinary(const std::string& url,
                                     size_t maxBytes,
-                                    std::string& errMsg) {
+                                    std::string& errMsg,
+                                    XferInfoFn progressFn,
+                                    void*       progressUd) {
     CURL* curl = curl_easy_init();
     if (!curl) {
         errMsg = "curl_easy_init failed";
@@ -224,6 +237,13 @@ std::vector<uint8_t> httpGetBinary(const std::string& url,
     curl_easy_setopt(curl, CURLOPT_CAINFO,            "sdmc:/3ds/rssreader/cacert.pem");
     curl_easy_setopt(curl, CURLOPT_USERAGENT,         "3DS-RSSReader/1.0");
     curl_easy_setopt(curl, CURLOPT_MAXFILESIZE_LARGE, (curl_off_t)maxBytes);
+
+    XferCtxWrap xferWrap { progressFn, progressUd };
+    if (progressFn) {
+        curl_easy_setopt(curl, CURLOPT_NOPROGRESS,        0L);
+        curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION,  curlXferCb);
+        curl_easy_setopt(curl, CURLOPT_XFERINFODATA,      &xferWrap);
+    }
 
     CURLcode res = curl_easy_perform(curl);
     curl_easy_cleanup(curl);

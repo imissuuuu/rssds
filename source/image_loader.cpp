@@ -11,6 +11,14 @@
 #include "net.h"
 #include <cstring>
 
+struct XferCbCtx { ImageLoader* loader; const std::string* url; };
+
+static int xferInfoCb(void* ud, int64_t dltotal, int64_t dlnow) {
+    auto* ctx = static_cast<XferCbCtx*>(ud);
+    ctx->loader->setProgress(*ctx->url, dlnow, dltotal);
+    return 0;
+}
+
 static constexpr int    MAX_DIM      = 256;
 static constexpr size_t MAX_BYTES    = 2u * 1024u * 1024u;
 static constexpr size_t WORKER_STACK = 64u * 1024u;
@@ -46,9 +54,10 @@ static void bilinearResize(const uint8_t* src, int sw, int sh,
     }
 }
 
-static void processOne(const std::string& url, DecodedImage& out) {
+static void processOne(const std::string& url, DecodedImage& out,
+                        XferInfoFn xferFn, void* xferUd) {
     std::string err;
-    std::vector<uint8_t> bin = httpGetBinary(url, MAX_BYTES, err);
+    std::vector<uint8_t> bin = httpGetBinary(url, MAX_BYTES, err, xferFn, xferUd);
     if (bin.empty()) { out.failed = true; return; }
 
     int w = 0, h = 0, ch = 0;
@@ -84,6 +93,7 @@ static void processOne(const std::string& url, DecodedImage& out) {
 
 ImageLoader::ImageLoader() {
     LightLock_Init(&lock_);
+    LightLock_Init(&progressLock_);
     LightEvent_Init(&wakeup_, RESET_STICKY);
 }
 
@@ -132,6 +142,7 @@ void ImageLoader::cancelAll() {
     LightLock_Lock(&lock_);
     jobs_.clear();
     LightLock_Unlock(&lock_);
+    clearProgress();
 }
 
 bool ImageLoader::poll(DecodedImage& out) {
@@ -168,10 +179,39 @@ void ImageLoader::workerMain() {
 
         DecodedImage out;
         out.url = url;
-        processOne(url, out);
+        XferCbCtx pctx { this, &url };
+        processOne(url, out, xferInfoCb, &pctx);
 
         LightLock_Lock(&lock_);
         results_.push_back(std::move(out));
         LightLock_Unlock(&lock_);
     }
+}
+
+void ImageLoader::setProgress(const std::string& url, int64_t dlnow, int64_t dltotal) {
+    float pct;
+    if (dltotal > 0)
+        pct = (float)dlnow / (float)dltotal;
+    else
+        pct = (float)dlnow / (float)MAX_BYTES;  // Content-Length なし: 上限比で近似
+    if (pct > 1.0f) pct = 1.0f;
+    LightLock_Lock(&progressLock_);
+    progressMap_[url] = { pct };
+    LightLock_Unlock(&progressLock_);
+}
+
+float ImageLoader::getProgress(const std::string& url) {
+    LightLock_Lock(&progressLock_);
+    auto it = progressMap_.find(url);
+    float result = 0.0f;
+    if (it != progressMap_.end())
+        result = it->second.pct;
+    LightLock_Unlock(&progressLock_);
+    return result;
+}
+
+void ImageLoader::clearProgress() {
+    LightLock_Lock(&progressLock_);
+    progressMap_.clear();
+    LightLock_Unlock(&progressLock_);
 }

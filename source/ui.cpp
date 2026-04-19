@@ -474,7 +474,10 @@ static void drawArticleView(const AppState& state) {
 
     int totalLines = (int)lines.size();
     int imgCount   = (int)art.imageUrls.size();
-    int imgPixels  = imgCount * (IMG_BLOCK_H + IMG_GAP_PX);
+    // 最後の画像にはギャップ不要なので除く
+    int imgPixels  = imgCount > 0
+        ? imgCount * IMG_BLOCK_H + (imgCount - 1) * IMG_GAP_PX
+        : 0;
     int extraLines = imgCount > 0
         ? (imgPixels + (int)LINE_HEIGHT - 1) / (int)LINE_HEIGHT
         : 0;
@@ -512,7 +515,19 @@ static void drawArticleView(const AppState& state) {
             drawText("[image failed]", TEXT_MARGIN_X, (float)yPx, 0.5f,
                      TEXT_SCALE, TEXT_SCALE, CLR_ERROR);
         } else {
-            drawText("[loading...]", TEXT_MARGIN_X, (float)yPx, 0.5f,
+            // プログレスバー
+            constexpr float BAR_H = 10.0f;
+            constexpr float BAR_W = TOP_W - TEXT_MARGIN_X * 2.0f;
+            float barY = (float)yPx + 6.0f;
+            C2D_DrawRectSolid(TEXT_MARGIN_X, barY, 0.5f, BAR_W, BAR_H,
+                               C2D_Color32(0x40, 0x40, 0x60, 0xFF));
+            float pct = state.imgCache.getProgress(art.imageUrls[i]);
+            if (pct > 0.0f)
+                C2D_DrawRectSolid(TEXT_MARGIN_X, barY, 0.5f, BAR_W * pct, BAR_H,
+                                   CLR_TITLE);
+            char pctBuf[20];
+            snprintf(pctBuf, sizeof(pctBuf), "Loading... %d%%", (int)(pct * 100.0f));
+            drawText(pctBuf, TEXT_MARGIN_X, barY + BAR_H + 3.0f, 0.5f,
                      TEXT_SCALE, TEXT_SCALE, CLR_HINT);
         }
     }
@@ -531,7 +546,9 @@ static void drawArticleView(const AppState& state) {
     }
 
     char scrollInfo[32];
-    snprintf(scrollInfo, sizeof(scrollInfo), "Line %d / %d", scroll + 1, totalLines);
+    int displayScroll = scroll < totalDisplayLines ? scroll + 1 : totalDisplayLines;
+    snprintf(scrollInfo, sizeof(scrollInfo), "Line %d / %d",
+             displayScroll, totalDisplayLines);
     drawText(scrollInfo, TEXT_MARGIN_X, BOT_H - 30.0f, 0.5f,
              TEXT_SCALE, TEXT_SCALE, CLR_HINT);
     const char* guide = (!art.fullFetched && !art.link.empty())

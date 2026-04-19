@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 #include <deque>
+#include <unordered_map>
 #include <cstdint>
 
 // worker thread が生成し render thread が消費するデコード済み画像。
@@ -40,15 +41,28 @@ public:
     // 完了結果を 1 件取り出す。なければ false。
     bool poll(DecodedImage& out);
 
+    // render thread: 0.0-1.0 を返す。未登録時は 0.0。
+    float getProgress(const std::string& url);
+
+    // worker thread からのみ呼ぶ。
+    void setProgress(const std::string& url, int64_t dlnow, int64_t dltotal);
+
+    // プログレスマップをクリア (cancelAll / resetForArticle 時)。
+    void clearProgress();
+
 private:
     void          workerMain();
     static void   trampoline(void* self);
 
-    LightLock                lock_;
-    LightEvent               wakeup_;
-    std::deque<std::string>  jobs_;
-    std::deque<DecodedImage> results_;
-    Thread                   thread_  = nullptr;
-    volatile bool            running_ = false;
-    volatile bool            stop_    = false;
+    struct ProgressData { float pct = 0.0f; };
+
+    LightLock                                          lock_;
+    LightLock                                          progressLock_;
+    LightEvent                                         wakeup_;
+    std::deque<std::string>                            jobs_;
+    std::deque<DecodedImage>                           results_;
+    std::unordered_map<std::string, ProgressData>      progressMap_;
+    Thread                                             thread_  = nullptr;
+    volatile bool                                      running_ = false;
+    volatile bool                                      stop_    = false;
 };
