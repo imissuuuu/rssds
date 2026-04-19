@@ -27,6 +27,10 @@ static constexpr float STATUSBAR_H    = 14.0f;
 static constexpr float TOP_CONTENT_Y  = STATUSBAR_H + TEXT_MARGIN_Y;  // 20.0f
 
 
+// 画像ブロック
+static constexpr int IMG_GAP_PX  = 6;
+static constexpr int IMG_BLOCK_H = 256;
+
 // テキスト折り返し用ピクセル幅
 // wrapText の高速推定用。citro2d による実幅検証で最終的に正確にトリムされる
 static constexpr int   TOP_WRAP_PX         = 388;
@@ -482,9 +486,6 @@ static void drawArticleView(const AppState& state) {
     C2D_SceneBegin(topTarget);
     drawStatusBar();
 
-    constexpr int IMG_GAP_PX  = 6;
-    constexpr int IMG_BLOCK_H = 256;  // 画像表示枠 (実画像が小さくても予約)
-
     int totalLines = (int)lines.size();
     int imgCount   = (int)art.imageUrls.size();
     // 最後の画像にはギャップ不要なので除く
@@ -564,10 +565,66 @@ static void drawArticleView(const AppState& state) {
              displayScroll, totalDisplayLines);
     drawText(scrollInfo, TEXT_MARGIN_X, BOT_H - 30.0f, 0.5f,
              TEXT_SCALE, TEXT_SCALE, CLR_HINT);
-    const char* guide = (!art.fullFetched && !art.link.empty())
-        ? "Up/Down:scroll  A:full article  B:back"
-        : "Up/Down:scroll  B:back";
+    bool hasReadyImg = false;
+    for (const auto& u : art.imageUrls) {
+        const CachedImage* ci = state.imgCache.get(u);
+        if (ci && ci->state == ImgState::Ready) { hasReadyImg = true; break; }
+    }
+    const char* guide;
+    if (!art.fullFetched && !art.link.empty())
+        guide = "Up/Down:scroll  A:full article  B:back";
+    else if (hasReadyImg)
+        guide = "Up/Down:scroll  A:image  B:back";
+    else
+        guide = "Up/Down:scroll  B:back";
     drawText(guide, TEXT_MARGIN_X, BOT_H - 16.0f, 0.5f, 0.42f, 0.42f, CLR_HINT);
+}
+
+static void drawImageView(const AppState& state) {
+    C2D_TargetClear(topTarget, C2D_Color32(0, 0, 0, 0xFF));
+    C2D_SceneBegin(topTarget);
+
+    // 高解像度が Ready なら優先表示、未完なら低解像度をフォールバック
+    const CachedImage* hi  = state.imgViewCache.get(state.imageViewUrl);
+    const CachedImage* lo  = state.imgCache.get(state.imageViewUrl);
+    const CachedImage* c   = (hi && hi->state == ImgState::Ready) ? hi : lo;
+    bool hiLoading = !hi || hi->state == ImgState::Pending || hi->state == ImgState::None;
+
+    if (c && c->state == ImgState::Ready) {
+        float z = state.imageViewZoom;
+        float w = (float)c->imgW * z;
+        float h = (float)c->imgH * z;
+        float x = (TOP_W - w) / 2.0f + state.imageViewOffX;
+        float y = (TOP_H - h) / 2.0f + state.imageViewOffY;
+        C2D_Image img { const_cast<C3D_Tex*>(&c->tex),
+                        const_cast<Tex3DS_SubTexture*>(&c->sub) };
+        C2D_DrawImageAt(img, x, y, 0.5f, nullptr, z, z);
+    }
+
+    // 高解像度ローディング中はプログレスバーを右下に小さく表示
+    if (hiLoading) {
+        float pct = state.imgViewCache.getProgress(state.imageViewUrl);
+        constexpr float BAR_W = 80.0f;
+        constexpr float BAR_H = 6.0f;
+        float barX = TOP_W - BAR_W - 4.0f;
+        float barY = TOP_H - BAR_H - 4.0f;
+        C2D_DrawRectSolid(barX, barY, 0.5f, BAR_W, BAR_H, C2D_Color32(0x40, 0x40, 0x60, 0xC0));
+        if (pct > 0.0f)
+            C2D_DrawRectSolid(barX, barY, 0.5f, BAR_W * pct, BAR_H, CLR_TITLE);
+    }
+
+    std::unordered_set<std::string> vis;
+    if (!state.imageViewUrl.empty()) vis.insert(state.imageViewUrl);
+    state.imgViewCache.tick(vis);
+
+    C2D_TargetClear(botTarget, CLR_PANEL);
+    C2D_SceneBegin(botTarget);
+
+    char zoomBuf[20];
+    snprintf(zoomBuf, sizeof(zoomBuf), "Zoom: x%.1f", state.imageViewZoom);
+    drawText(zoomBuf, TEXT_MARGIN_X, TEXT_MARGIN_Y, 0.5f, TEXT_SCALE, TEXT_SCALE, CLR_TITLE);
+    drawText("L/R:zoom  Stick/Dpad:scroll  B:back",
+             TEXT_MARGIN_X, BOT_H - 16.0f, 0.5f, 0.42f, 0.42f, CLR_HINT);
 }
 
 static void drawSettings(const AppState& state) {
@@ -633,12 +690,12 @@ void uiDraw(const AppState& state) {
         case Screen::LoadingAll:  drawLoadingScreen(state); break;
         case Screen::ArticleList: drawArticleList(state);   break;
         case Screen::ArticleView: drawArticleView(state);   break;
+        case Screen::ImageView:   drawImageView(state);     break;
         case Screen::Settings:    drawSettings(state);      break;
     }
 }
 
 void uiHandleInput(AppState& state, u32 kDown, u32 kHeld, u32 kRepeat) {
-    (void)kHeld;
     // D-pad は kRepeat を使用（libctru 組み込みの長押しリピート）。
     // A/B/START などの確定ボタンは引き続き kDown を使用する。
 
@@ -784,12 +841,92 @@ void uiHandleInput(AppState& state, u32 kDown, u32 kHeld, u32 kRepeat) {
                         art.fullFetched = true;
                         state.scrollY   = 0;
                     }
+                } else if (!art.imageUrls.empty()) {
+                    // スクロール位置から画面中央に最も近い画像を選ぶ
+                    int textLines = (int)state.articleLines.size();
+                    float textBottomY = TOP_CONTENT_Y
+                        + (float)(textLines - state.scrollY) * LINE_HEIGHT;
+                    float screenMid = TOP_H / 2.0f;
+                    int bestIdx = 0;
+                    float bestDist = 1e9f;
+                    for (int i = 0; i < (int)art.imageUrls.size(); ++i) {
+                        float cy = textBottomY + i * (IMG_BLOCK_H + IMG_GAP_PX)
+                                   + IMG_BLOCK_H / 2.0f;
+                        float d = cy - screenMid;
+                        if (d < 0.0f) d = -d;
+                        if (d < bestDist) { bestDist = d; bestIdx = i; }
+                    }
+                    const CachedImage* c = state.imgCache.get(art.imageUrls[bestIdx]);
+                    if (c && c->state == ImgState::Ready) {
+                        state.imageViewUrl  = art.imageUrls[bestIdx];
+                        state.imageViewZoom = 1.0f;
+                        state.imageViewOffX = 0.0f;
+                        state.imageViewOffY = 0.0f;
+                        // 高解像度で再ダウンロード
+                        state.imgViewLoader.setMaxDim(1024);
+                        state.imgViewLoader.start();
+                        state.imgViewCache.attach(&state.imgViewLoader);
+                        state.imgViewCache.resetForArticle({state.imageViewUrl});
+                        state.currentScreen = Screen::ImageView;
+                    }
                 }
                 kDown &= ~KEY_A;
             }
             if (kDown & KEY_B) {
                 state.currentScreen = Screen::ArticleList;
                 state.statusMsg     = "";
+                kDown &= ~KEY_B;
+            }
+            break;
+        }
+        case Screen::ImageView: {
+            constexpr float ZOOM_STEP = 0.05f;
+            constexpr float ZOOM_MIN  = 0.5f;
+            constexpr float ZOOM_MAX  = 4.0f;
+            // L/R でズーム (old 3DS 含む全機種対応)
+            if (kHeld & KEY_R) {
+                state.imageViewZoom += ZOOM_STEP;
+                if (state.imageViewZoom > ZOOM_MAX) state.imageViewZoom = ZOOM_MAX;
+            }
+            if (kHeld & KEY_L) {
+                state.imageViewZoom -= ZOOM_STEP;
+                if (state.imageViewZoom < ZOOM_MIN) state.imageViewZoom = ZOOM_MIN;
+            }
+
+            // スティック + Dpad でパン
+            constexpr float PAN_SPEED  = 12.0f;
+            constexpr float DPAD_SPEED = 10.0f;
+            constexpr int   DEAD_ZONE  = 20;
+            circlePosition pos;
+            hidCircleRead(&pos);
+            if (pos.dx > DEAD_ZONE || pos.dx < -DEAD_ZONE)
+                state.imageViewOffX -= (float)pos.dx / 154.0f * PAN_SPEED;
+            if (pos.dy > DEAD_ZONE || pos.dy < -DEAD_ZONE)
+                state.imageViewOffY += (float)pos.dy / 154.0f * PAN_SPEED;
+            if (kHeld & KEY_RIGHT) state.imageViewOffX -= DPAD_SPEED;
+            if (kHeld & KEY_LEFT)  state.imageViewOffX += DPAD_SPEED;
+            if (kHeld & KEY_UP)    state.imageViewOffY += DPAD_SPEED;
+            if (kHeld & KEY_DOWN)  state.imageViewOffY -= DPAD_SPEED;
+
+            // クランプ: 高解像度版の寸法を優先して使用
+            {
+                const CachedImage* hi = state.imgViewCache.get(state.imageViewUrl);
+                const CachedImage* lo = state.imgCache.get(state.imageViewUrl);
+                const CachedImage* c  = (hi && hi->state == ImgState::Ready) ? hi : lo;
+                if (c && c->state == ImgState::Ready) {
+                    float hw = (float)c->imgW * state.imageViewZoom / 2.0f;
+                    float hh = (float)c->imgH * state.imageViewZoom / 2.0f;
+                    float maxX = hw > TOP_W / 2.0f ? hw - TOP_W / 2.0f : 0.0f;
+                    float maxY = hh > TOP_H / 2.0f ? hh - TOP_H / 2.0f : 0.0f;
+                    if (state.imageViewOffX >  maxX) state.imageViewOffX =  maxX;
+                    if (state.imageViewOffX < -maxX) state.imageViewOffX = -maxX;
+                    if (state.imageViewOffY >  maxY) state.imageViewOffY =  maxY;
+                    if (state.imageViewOffY < -maxY) state.imageViewOffY = -maxY;
+                }
+            }
+
+            if (kDown & KEY_B) {
+                state.currentScreen = Screen::ArticleView;
                 kDown &= ~KEY_B;
             }
             break;

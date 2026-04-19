@@ -101,6 +101,9 @@ public:
     // render thread: 0.0-1.0 を返す。未登録時は 0.0。
     float getProgress(const std::string& url);
 
+    // ダウンロード後のリサイズ上限 (デフォルト 256)。start() 前に呼ぶこと。
+    void setMaxDim(int d) { maxDim_ = d; }
+
     // worker thread からのみ呼ぶ。
     void setProgress(const std::string& url, int64_t dlnow, int64_t dltotal);
 
@@ -113,6 +116,7 @@ private:
 
     struct ProgressData { float pct = 0.0f; };
 
+    int                                                maxDim_  = 256;
     LightLock                                          lock_;
     LightLock                                          progressLock_;
     LightEvent                                         wakeup_;
