@@ -164,6 +164,9 @@ int main() {
     }
 
     // 終了処理（coding-patterns #2 の順序を遵守）
+    // worker thread を最初に停止 → 画像テクスチャを C3D 生存中に解放
+    state.imgLoader.stop();
+    state.imgCache.resetForArticle({});
     uiExit();
     ptmuExit();
     if (netOk) netExit();

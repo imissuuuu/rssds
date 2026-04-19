@@ -179,3 +179,62 @@ std::string httpGet(const std::string& url, std::string& errMsg) {
     }
     return body;
 }
+
+namespace {
+struct BinaryCtx {
+    std::vector<uint8_t>* buf;
+    size_t                maxBytes;
+    bool                  aborted;
+};
+}
+
+static size_t writeBinaryCallback(char* ptr, size_t sz, size_t nm, void* ud) {
+    auto* ctx = static_cast<BinaryCtx*>(ud);
+    size_t n = sz * nm;
+    if (ctx->aborted) return 0;
+    if (ctx->buf->size() + n > ctx->maxBytes) {
+        ctx->aborted = true;
+        return 0;  // libcurl に中断を伝える
+    }
+    ctx->buf->insert(ctx->buf->end(),
+                     reinterpret_cast<uint8_t*>(ptr),
+                     reinterpret_cast<uint8_t*>(ptr) + n);
+    return n;
+}
+
+std::vector<uint8_t> httpGetBinary(const std::string& url,
+                                    size_t maxBytes,
+                                    std::string& errMsg) {
+    CURL* curl = curl_easy_init();
+    if (!curl) {
+        errMsg = "curl_easy_init failed";
+        return {};
+    }
+
+    std::vector<uint8_t> buf;
+    BinaryCtx ctx { &buf, maxBytes, false };
+
+    curl_easy_setopt(curl, CURLOPT_URL,               url.c_str());
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION,     writeBinaryCallback);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA,         &ctx);
+    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION,    1L);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT,           30L);
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER,    1L);
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST,    2L);
+    curl_easy_setopt(curl, CURLOPT_CAINFO,            "sdmc:/3ds/rssreader/cacert.pem");
+    curl_easy_setopt(curl, CURLOPT_USERAGENT,         "3DS-RSSReader/1.0");
+    curl_easy_setopt(curl, CURLOPT_MAXFILESIZE_LARGE, (curl_off_t)maxBytes);
+
+    CURLcode res = curl_easy_perform(curl);
+    curl_easy_cleanup(curl);
+
+    if (ctx.aborted) {
+        errMsg = "size limit exceeded";
+        return {};
+    }
+    if (res != CURLE_OK) {
+        errMsg = curl_easy_strerror(res);
+        return {};
+    }
+    return buf;
+}
