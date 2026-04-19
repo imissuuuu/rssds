@@ -13,6 +13,17 @@
 
 struct XferCbCtx { ImageLoader* loader; const std::string* url; };
 
+/**
+ * @brief Transfer progress callback that records download progress for a specific URL.
+ *
+ * Casts the user data to an XferCbCtx and calls the associated ImageLoader's setProgress with
+ * the current downloaded and total bytes for the URL contained in the context.
+ *
+ * @param ud Pointer to an XferCbCtx containing the target ImageLoader and URL.
+ * @param dltotal Total number of bytes expected for the transfer (may be <= 0 if unknown).
+ * @param dlnow  Number of bytes downloaded so far.
+ * @return int Always returns 0 to indicate the transfer should continue.
+ */
 static int xferInfoCb(void* ud, int64_t dltotal, int64_t dlnow) {
     auto* ctx = static_cast<XferCbCtx*>(ud);
     ctx->loader->setProgress(*ctx->url, dlnow, dltotal);
@@ -23,6 +34,21 @@ static constexpr int    MAX_DIM      = 256;
 static constexpr size_t MAX_BYTES    = 2u * 1024u * 1024u;
 static constexpr size_t WORKER_STACK = 64u * 1024u;
 
+/**
+ * @brief Resize an RGBA image using bilinear interpolation.
+ *
+ * Resamples the source image to the destination dimensions with bilinear filtering,
+ * producing RGBA output with per-channel values clamped to [0, 255].
+ *
+ * @param src Pointer to source pixel data in row-major order, 4 bytes per pixel (RGBA).
+ *            Must contain at least sw * sh * 4 bytes.
+ * @param sw Source image width in pixels (must be >= 1).
+ * @param sh Source image height in pixels (must be >= 1).
+ * @param dst Pointer to destination buffer, 4 bytes per pixel (RGBA).
+ *            Must have space for at least dw * dh * 4 bytes.
+ * @param dw Destination image width in pixels (must be >= 1).
+ * @param dh Destination image height in pixels (must be >= 1).
+ */
 static void bilinearResize(const uint8_t* src, int sw, int sh,
                             uint8_t* dst, int dw, int dh) {
     for (int dy = 0; dy < dh; ++dy) {
@@ -54,6 +80,18 @@ static void bilinearResize(const uint8_t* src, int sw, int sh,
     }
 }
 
+/**
+ * @brief Downloads an image from a URL, decodes it to RGBA, and stores a resized result in `out`.
+ *
+ * Downloads up to MAX_BYTES from `url`, decodes the image forcing 4-channel RGBA, scales it so the
+ * larger dimension is at most MAX_DIM while preserving aspect ratio (minimum dimension 1), and writes
+ * pixels into `out.rgba` with `out.imgW`/`out.imgH` set accordingly. On failure `out.failed` is set.
+ *
+ * @param url Source URL of the image to download.
+ * @param out Output container that will be populated with the decoded/resized image or marked failed.
+ * @param xferFn Optional transfer-progress callback invoked during download; may be nullptr.
+ * @param xferUd Opaque user pointer forwarded to `xferFn`.
+ */
 static void processOne(const std::string& url, DecodedImage& out,
                         XferInfoFn xferFn, void* xferUd) {
     std::string err;
@@ -91,6 +129,12 @@ static void processOne(const std::string& url, DecodedImage& out,
     stbi_image_free(px);
 }
 
+/**
+ * @brief Initializes the ImageLoader and its synchronization primitives.
+ *
+ * Initializes internal locks used to protect job/result and progress state,
+ * and initializes the wakeup event used to coordinate the worker thread.
+ */
 ImageLoader::ImageLoader() {
     LightLock_Init(&lock_);
     LightLock_Init(&progressLock_);
@@ -138,6 +182,14 @@ void ImageLoader::submit(const std::string& url) {
     LightEvent_Signal(&wakeup_);
 }
 
+/**
+ * @brief Cancel all pending image load requests and clear progress state.
+ *
+ * Removes all queued jobs and resets stored per-URL progress percentages.
+ * This operation does not abort a job that is already being processed by the worker.
+ *
+ * @note The function acquires the loader's internal lock while clearing the pending job queue.
+ */
 void ImageLoader::cancelAll() {
     LightLock_Lock(&lock_);
     jobs_.clear();
@@ -145,6 +197,14 @@ void ImageLoader::cancelAll() {
     clearProgress();
 }
 
+/**
+ * Retrieves the next completed decoded image from the loader's result queue, if any.
+ *
+ * If a result is available, moves it into `out` and removes it from the internal queue.
+ *
+ * @param[out] out Destination for the next DecodedImage when one is available.
+ * @return `true` if `out` was set to a moved result, `false` if no result was available.
+ */
 bool ImageLoader::poll(DecodedImage& out) {
     LightLock_Lock(&lock_);
     if (results_.empty()) {
@@ -161,6 +221,16 @@ void ImageLoader::trampoline(void* self) {
     static_cast<ImageLoader*>(self)->workerMain();
 }
 
+/**
+ * @brief Worker loop that processes queued image download and decode jobs.
+ *
+ * Continuously consumes URLs from the internal job queue, downloads and decodes
+ * each image (with progress reported), and appends the resulting DecodedImage to
+ * the results queue until the loader is stopped.
+ *
+ * This method blocks waiting on the internal wakeup event when no jobs are
+ * available and respects the loader's stop flag to terminate promptly.
+ */
 void ImageLoader::workerMain() {
     while (!stop_) {
         std::string url;
@@ -188,6 +258,18 @@ void ImageLoader::workerMain() {
     }
 }
 
+/**
+ * @brief Update stored download progress for a specific URL as a fraction between 0 and 1.
+ *
+ * Computes a progress fraction `pct` from `dlnow` and `dltotal` (uses `dlnow / dltotal` when
+ * `dltotal > 0`, otherwise approximates with `dlnow / MAX_BYTES`), clamps `pct` to a maximum
+ * of 1.0, and stores it in the loader's per-URL progress map under a lock.
+ *
+ * @param url      The resource URL whose progress is being reported.
+ * @param dlnow    Number of bytes downloaded so far for this URL.
+ * @param dltotal  Total number of bytes expected for this URL; if <= 0 the function will approximate
+ *                 the total using `MAX_BYTES`.
+ */
 void ImageLoader::setProgress(const std::string& url, int64_t dlnow, int64_t dltotal) {
     float pct;
     if (dltotal > 0)
@@ -200,6 +282,14 @@ void ImageLoader::setProgress(const std::string& url, int64_t dlnow, int64_t dlt
     LightLock_Unlock(&progressLock_);
 }
 
+/**
+ * @brief Retrieves the current download progress for a given URL.
+ *
+ * Looks up the stored progress percentage for the specified URL and returns it.
+ *
+ * @param url URL whose download progress is queried.
+ * @return float Progress fraction between 0.0 and 1.0, or 0.0 if no progress is recorded.
+ */
 float ImageLoader::getProgress(const std::string& url) {
     LightLock_Lock(&progressLock_);
     auto it = progressMap_.find(url);
@@ -210,6 +300,15 @@ float ImageLoader::getProgress(const std::string& url) {
     return result;
 }
 
+/**
+ * @brief Clears all stored per-URL download progress entries.
+ *
+ * After calling this, subsequent calls to getProgress(url) will return 0.0
+ * for any URL that previously had progress recorded.
+ *
+ * This operation is safe to call concurrently with other ImageLoader
+ * operations.
+ */
 void ImageLoader::clearProgress() {
     LightLock_Lock(&progressLock_);
     progressMap_.clear();

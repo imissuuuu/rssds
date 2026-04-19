@@ -441,6 +441,19 @@ static void drawArticleList(const AppState& state) {
              0.5f, 0.42f, 0.42f, CLR_HINT);
 }
 
+/**
+ * @brief Render the article view: draws the article body and images on the top screen and the title plus controls on the bottom screen.
+ *
+ * Recomputes wrapped text and (re)initializes the article image cache when the selected feed, article, or article content size changes.
+ * Computes and clamps vertical scroll bounds, updates the state's cached max scroll, and renders visible text lines and a vertically stacked image section
+ * (showing cached images, failure markers, or a progress bar with percentage). After image drawing, advances image loading via the image cache tick.
+ * The bottom screen displays up to two wrapped title lines, a "Line N / M" scroll indicator, and the appropriate control guide.
+ *
+ * Side effects:
+ * - Updates state's cached line/feed/article/content tracking and state.cachedMaxScroll.
+ * - May start/reset the image loader and attach/reset the image cache for the article.
+ * - Calls state.imgCache.tick(...) with the set of visible image URLs.
+ */
 static void drawArticleView(const AppState& state) {
     const Article& art =
         state.feeds[state.selectedFeed].articles[state.selectedArticle];

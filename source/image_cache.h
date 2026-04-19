@@ -19,7 +19,32 @@ struct CachedImage {
     int                imgH      = 0;
 };
 
-// render thread からのみ操作。ImageLoader (worker) と疎結合。
+/**
+ * Attach an ImageLoader worker to the cache so the render thread can submit and poll jobs.
+ * @param loader Pointer to the ImageLoader instance to attach; may be nullptr to detach.
+ */
+/**
+ * Prepare the cache for a new article: cancel in-flight worker jobs, absorb any results,
+ * release all GPU textures, and replace the tracked URL list.
+ * @param urls Vector of URLs that belong to the new article.
+ */
+/**
+ * Advance the cache once per frame: submit newly visible URLs for loading, delete GPU
+ * textures for URLs that became invisible, and poll at most one completed decode from
+ * the attached worker for upload.
+ * @param visible Set of URLs currently visible this frame.
+ */
+/**
+ * Retrieve cached image metadata for a URL.
+ * @param url URL of the image to look up.
+ * @returns Pointer to the CachedImage for `url`, or `nullptr` if there is no cache entry.
+ */
+/**
+ * Query download progress for a pending URL.
+ * @param url URL whose download progress to query.
+ * @returns Download progress in the range 0.0–1.0 for pending downloads; `-1.0f` if no
+ * loader is attached or the URL has no progress information.
+ */
 class ImageCache {
 public:
     ImageCache() = default;
@@ -41,7 +66,12 @@ public:
 
     const CachedImage* get(const std::string& url) const;
 
-    // Pending 中の URL のダウンロード進捗 (0.0-1.0)。
+    /**
+     * Get the download progress for a pending URL.
+     *
+     * @param url URL of the image to query.
+     * @returns `0.0`–`1.0` progress for the URL, or `-1.0` if no ImageLoader is attached or progress is unavailable.
+     */
     float getProgress(const std::string& url) {
         return loader_ ? loader_->getProgress(url) : -1.0f;
     }
