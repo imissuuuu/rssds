@@ -186,8 +186,45 @@ struct BinaryCtx {
     size_t                maxBytes;
     bool                  aborted;
 };
+
+struct XferCtxWrap {
+    XferInfoFn fn;
+    void*      ud;
+};
 }
 
+/**
+ * @brief Forwards libcurl transfer-progress updates to the stored progress callback.
+ *
+ * Extracts the XferCtxWrap provided as userdata and calls its progress function
+ * with the wrapped user data and the download total/current values.
+ *
+ * @param ud Pointer to an XferCtxWrap containing the progress callback and its user data.
+ * @param dltotal Total number of bytes expected to be downloaded (forwarded to the callback).
+ * @param dlnow Number of bytes downloaded so far (forwarded to the callback).
+ * @return int The value returned by the progress callback; a non-zero value will signal libcurl to abort the transfer.
+ */
+static int curlXferCb(void* ud, curl_off_t dltotal, curl_off_t dlnow,
+                       curl_off_t, curl_off_t) {
+    auto* w = static_cast<XferCtxWrap*>(ud);
+    return w->fn(w->ud, (int64_t)dltotal, (int64_t)dlnow);
+}
+
+/**
+ * @brief Appends a received binary chunk into the provided output buffer while enforcing a size limit.
+ *
+ * Appends up to `sz * nm` bytes from `ptr` into the `BinaryCtx::buf`. If the context is already marked
+ * aborted or adding the incoming chunk would exceed `BinaryCtx::maxBytes`, the function sets the
+ * aborted flag (when applicable) and returns 0 to signal interruption to libcurl.
+ *
+ * @param ptr Pointer to the incoming data.
+ * @param sz Size of each incoming element in bytes.
+ * @param nm Number of incoming elements.
+ * @param ud Pointer to a `BinaryCtx` that holds the destination buffer, the maximum allowed bytes,
+ *           and the aborted flag.
+ * @return size_t Number of bytes written (`sz * nm`) on success, `0` if the transfer was aborted or
+ *         would exceed the size limit.
+ */
 static size_t writeBinaryCallback(char* ptr, size_t sz, size_t nm, void* ud) {
     auto* ctx = static_cast<BinaryCtx*>(ud);
     size_t n = sz * nm;
@@ -202,9 +239,28 @@ static size_t writeBinaryCallback(char* ptr, size_t sz, size_t nm, void* ud) {
     return n;
 }
 
+/**
+ * @brief Downloads binary data from a URL with a maximum size and optional progress reporting.
+ *
+ * Attempts to fetch the resource at `url` into a byte vector. If the transfer exceeds
+ * `maxBytes` the download is aborted and the function reports an error.
+ *
+ * @param url The URL to download.
+ * @param maxBytes Maximum number of bytes to accept; exceeding this aborts the transfer.
+ * @param errMsg Output parameter that receives an error message on failure.
+ *               Possible values include "curl_easy_init failed", "size limit exceeded",
+ *               or a libcurl error string from `curl_easy_strerror`.
+ * @param progressFn Optional progress callback. If non-null, it will be invoked with
+ *                   `(progressUd, dltotal, dlnow)` where `dltotal` and `dlnow` are
+ *                   the total and downloaded byte counts as `int64_t`.
+ * @param progressUd User data pointer passed to `progressFn`.
+ * @return std::vector<uint8_t> The downloaded bytes on success, or an empty vector on failure.
+ */
 std::vector<uint8_t> httpGetBinary(const std::string& url,
                                     size_t maxBytes,
-                                    std::string& errMsg) {
+                                    std::string& errMsg,
+                                    XferInfoFn progressFn,
+                                    void*       progressUd) {
     CURL* curl = curl_easy_init();
     if (!curl) {
         errMsg = "curl_easy_init failed";
@@ -224,6 +280,13 @@ std::vector<uint8_t> httpGetBinary(const std::string& url,
     curl_easy_setopt(curl, CURLOPT_CAINFO,            "sdmc:/3ds/rssreader/cacert.pem");
     curl_easy_setopt(curl, CURLOPT_USERAGENT,         "3DS-RSSReader/1.0");
     curl_easy_setopt(curl, CURLOPT_MAXFILESIZE_LARGE, (curl_off_t)maxBytes);
+
+    XferCtxWrap xferWrap { progressFn, progressUd };
+    if (progressFn) {
+        curl_easy_setopt(curl, CURLOPT_NOPROGRESS,        0L);
+        curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION,  curlXferCb);
+        curl_easy_setopt(curl, CURLOPT_XFERINFODATA,      &xferWrap);
+    }
 
     CURLcode res = curl_easy_perform(curl);
     curl_easy_cleanup(curl);

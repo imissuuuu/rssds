@@ -441,6 +441,19 @@ static void drawArticleList(const AppState& state) {
              0.5f, 0.42f, 0.42f, CLR_HINT);
 }
 
+/**
+ * @brief Render the article view: draws the article body and images on the top screen and the title plus controls on the bottom screen.
+ *
+ * Recomputes wrapped text and (re)initializes the article image cache when the selected feed, article, or article content size changes.
+ * Computes and clamps vertical scroll bounds, updates the state's cached max scroll, and renders visible text lines and a vertically stacked image section
+ * (showing cached images, failure markers, or a progress bar with percentage). After image drawing, advances image loading via the image cache tick.
+ * The bottom screen displays up to two wrapped title lines, a "Line N / M" scroll indicator, and the appropriate control guide.
+ *
+ * Side effects:
+ * - Updates state's cached line/feed/article/content tracking and state.cachedMaxScroll.
+ * - May start/reset the image loader and attach/reset the image cache for the article.
+ * - Calls state.imgCache.tick(...) with the set of visible image URLs.
+ */
 static void drawArticleView(const AppState& state) {
     const Article& art =
         state.feeds[state.selectedFeed].articles[state.selectedArticle];
@@ -474,7 +487,10 @@ static void drawArticleView(const AppState& state) {
 
     int totalLines = (int)lines.size();
     int imgCount   = (int)art.imageUrls.size();
-    int imgPixels  = imgCount * (IMG_BLOCK_H + IMG_GAP_PX);
+    // 最後の画像にはギャップ不要なので除く
+    int imgPixels  = imgCount > 0
+        ? imgCount * IMG_BLOCK_H + (imgCount - 1) * IMG_GAP_PX
+        : 0;
     int extraLines = imgCount > 0
         ? (imgPixels + (int)LINE_HEIGHT - 1) / (int)LINE_HEIGHT
         : 0;
@@ -512,7 +528,19 @@ static void drawArticleView(const AppState& state) {
             drawText("[image failed]", TEXT_MARGIN_X, (float)yPx, 0.5f,
                      TEXT_SCALE, TEXT_SCALE, CLR_ERROR);
         } else {
-            drawText("[loading...]", TEXT_MARGIN_X, (float)yPx, 0.5f,
+            // プログレスバー
+            constexpr float BAR_H = 10.0f;
+            constexpr float BAR_W = TOP_W - TEXT_MARGIN_X * 2.0f;
+            float barY = (float)yPx + 6.0f;
+            C2D_DrawRectSolid(TEXT_MARGIN_X, barY, 0.5f, BAR_W, BAR_H,
+                               C2D_Color32(0x40, 0x40, 0x60, 0xFF));
+            float pct = state.imgCache.getProgress(art.imageUrls[i]);
+            if (pct > 0.0f)
+                C2D_DrawRectSolid(TEXT_MARGIN_X, barY, 0.5f, BAR_W * pct, BAR_H,
+                                   CLR_TITLE);
+            char pctBuf[20];
+            snprintf(pctBuf, sizeof(pctBuf), "Loading... %d%%", (int)(pct * 100.0f));
+            drawText(pctBuf, TEXT_MARGIN_X, barY + BAR_H + 3.0f, 0.5f,
                      TEXT_SCALE, TEXT_SCALE, CLR_HINT);
         }
     }
@@ -531,7 +559,9 @@ static void drawArticleView(const AppState& state) {
     }
 
     char scrollInfo[32];
-    snprintf(scrollInfo, sizeof(scrollInfo), "Line %d / %d", scroll + 1, totalLines);
+    int displayScroll = scroll < totalDisplayLines ? scroll + 1 : totalDisplayLines;
+    snprintf(scrollInfo, sizeof(scrollInfo), "Line %d / %d",
+             displayScroll, totalDisplayLines);
     drawText(scrollInfo, TEXT_MARGIN_X, BOT_H - 30.0f, 0.5f,
              TEXT_SCALE, TEXT_SCALE, CLR_HINT);
     const char* guide = (!art.fullFetched && !art.link.empty())
