@@ -501,21 +501,28 @@ static lexbor_action_t serialize_cb(lxb_dom_node_t* node, void* ctx) {
         if (tagIn(node, SKIP_SUBTREE)) return LEXBOR_ACTION_NEXT;
         // <img> は本文テキストを持たないが、画像URL収集の対象
         if (tagEq(node, "img")) {
-            if (c->imageUrls && c->imageUrls->size() < MAX_IMAGE_URLS) {
-                size_t alen = 0;
-                const lxb_char_t* src = getAttr(node, "src", &alen);
-                if (src && alen > 0) {
-                    std::string ref((const char*)src, alen);
-                    std::string abs = c->baseUrl
-                        ? resolveUrl(*c->baseUrl, ref)
-                        : (ref.compare(0,7,"http://")==0 || ref.compare(0,8,"https://")==0 ? ref : std::string());
-                    if (!abs.empty()) {
-                        // 重複排除（同一URLの複数出現を弾く）
-                        bool dup = false;
-                        for (const auto& u : *c->imageUrls) {
+            size_t alen = 0;
+            const lxb_char_t* src = getAttr(node, "src", &alen);
+            if (src && alen > 0) {
+                std::string ref((const char*)src, alen);
+                std::string abs = c->baseUrl
+                    ? resolveUrl(*c->baseUrl, ref)
+                    : (ref.compare(0,7,"http://")==0 || ref.compare(0,8,"https://")==0 ? ref : std::string());
+                if (!abs.empty()) {
+                    bool dup = false;
+                    if (c->imageUrls) {
+                        for (const auto& u : *c->imageUrls)
                             if (u == abs) { dup = true; break; }
+                    }
+                    if (!dup) {
+                        bool withinCap = !c->imageUrls || c->imageUrls->size() < MAX_IMAGE_URLS;
+                        if (withinCap) {
+                            if (c->imageUrls) c->imageUrls->push_back(abs);
+                            // インライン位置にマーカーを埋め込む
+                            *c->out += '\x01';
+                            *c->out += abs;
+                            *c->out += '\x01';
                         }
-                        if (!dup) c->imageUrls->push_back(std::move(abs));
                     }
                 }
             }

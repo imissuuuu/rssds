@@ -27,9 +27,9 @@ static constexpr float STATUSBAR_H    = 14.0f;
 static constexpr float TOP_CONTENT_Y  = STATUSBAR_H + TEXT_MARGIN_Y;  // 20.0f
 
 
-// 画像ブロック
-static constexpr int IMG_GAP_PX  = 6;
-static constexpr int IMG_BLOCK_H = 256;
+// インライン画像（LINE_HEIGHT=16 の整数倍）
+static constexpr int IMG_INLINE_H     = 192;
+static constexpr int IMG_INLINE_LINES = 12;  // IMG_INLINE_H / LINE_HEIGHT
 
 // テキスト折り返し用ピクセル幅
 // wrapText の高速推定用。citro2d による実幅検証で最終的に正確にトリムされる
@@ -257,6 +257,43 @@ static std::vector<std::string> wrapText(const std::string& src, int maxPixels,
     return lines;
 }
 
+// 本文（\x01URL\x01 マーカー入り）を ContentLine ベクタに分割する。
+// テキスト区間は wrapText でラップ、マーカーは Image 行に変換する。
+static std::vector<ContentLine> parseContentLines(const std::string& body, int maxPx) {
+    std::vector<ContentLine> result;
+    size_t i = 0, n = body.size();
+    while (i <= n) {
+        size_t m = body.find('\x01', i);
+        if (m == std::string::npos) m = n;
+
+        // テキスト区間 [i, m)
+        if (m > i) {
+            std::string seg = body.substr(i, m - i);
+            for (auto& tl : wrapText(seg, maxPx)) {
+                ContentLine cl;
+                cl.kind = LineKind::Text;
+                cl.text = std::move(tl);
+                result.push_back(std::move(cl));
+            }
+        }
+        if (m >= n) break;
+
+        // 画像マーカー \x01URL\x01
+        size_t urlStart = m + 1;
+        size_t urlEnd   = body.find('\x01', urlStart);
+        if (urlEnd == std::string::npos) { i = urlStart; continue; }
+        std::string url = body.substr(urlStart, urlEnd - urlStart);
+        if (!url.empty()) {
+            ContentLine cl;
+            cl.kind     = LineKind::Image;
+            cl.imageUrl = std::move(url);
+            result.push_back(std::move(cl));
+        }
+        i = urlEnd + 1;
+    }
+    return result;
+}
+
 // --- 設定画面用定数 ---
 
 static const int SCROLL_DELAY_OPTIONS[]    = { 200, 300, 400, 500 };
@@ -466,84 +503,92 @@ static void drawArticleView(const AppState& state) {
     if (state.cachedLineFeed    != state.selectedFeed
      || state.cachedLineArticle != state.selectedArticle
      || state.cachedLineContentSize != art.content.size()) {
-        std::string plain = stripHtml(art.content);
-        state.articleLines          = wrapText(plain, TOP_WRAP_PX);
+        // stripHtml で HTML を除去しつつ \x01URL\x01 マーカーはそのまま通過させる
+        std::string processed = stripHtml(art.content);
+        state.articleLines          = parseContentLines(processed, TOP_WRAP_PX);
         state.cachedLineFeed        = state.selectedFeed;
         state.cachedLineArticle     = state.selectedArticle;
         state.cachedLineContentSize = art.content.size();
 
-        // 画像キャッシュも同タイミングで再構築 (Stage 2)
+        // ContentLines から inline 画像 URL を収集して imgCache を初期化
+        std::vector<std::string> inlineUrls;
+        for (const auto& cl : state.articleLines)
+            if (cl.kind == LineKind::Image)
+                inlineUrls.push_back(cl.imageUrl);
+
         state.imgLoader.start();
         state.imgCache.attach(&state.imgLoader);
-        state.imgCache.resetForArticle(art.imageUrls);
+        state.imgCache.resetForArticle(inlineUrls);
         state.cachedImagesFeed    = state.selectedFeed;
         state.cachedImagesArticle = state.selectedArticle;
     }
-    const std::vector<std::string>& lines = state.articleLines;
+    const std::vector<ContentLine>& lines = state.articleLines;
 
     // 上画面: 本文
     C2D_TargetClear(topTarget, CLR_BG);
     C2D_SceneBegin(topTarget);
     drawStatusBar();
 
-    int totalLines = (int)lines.size();
-    int imgCount   = (int)art.imageUrls.size();
-    // 最後の画像にはギャップ不要なので除く
-    int imgPixels  = imgCount > 0
-        ? imgCount * IMG_BLOCK_H + (imgCount - 1) * IMG_GAP_PX
-        : 0;
-    int extraLines = imgCount > 0
-        ? (imgPixels + (int)LINE_HEIGHT - 1) / (int)LINE_HEIGHT
-        : 0;
-    int totalDisplayLines = totalLines + extraLines;
-    int maxScroll  = totalDisplayLines > TOP_MAX_LINES
+    // totalDisplayLines: 各 ContentLine の占有行数の合計
+    int totalDisplayLines = 0;
+    for (const auto& cl : lines)
+        totalDisplayLines += (cl.kind == LineKind::Image) ? IMG_INLINE_LINES : 1;
+
+    int maxScroll = totalDisplayLines > TOP_MAX_LINES
         ? totalDisplayLines - TOP_MAX_LINES : 0;
     state.cachedMaxScroll = maxScroll;
-    int scroll     = state.scrollY < maxScroll ? state.scrollY : maxScroll;
+    int scroll = state.scrollY < maxScroll ? state.scrollY : maxScroll;
 
-    for (int i = 0; i < TOP_MAX_LINES && (scroll + i) < totalLines; ++i) {
-        float y = TOP_CONTENT_Y + (float)i * LINE_HEIGHT;
-        drawText(lines[scroll + i].c_str(), TEXT_MARGIN_X, y, 0.5f,
-                 TEXT_SCALE, TEXT_SCALE, CLR_TEXT);
-    }
-
-    // 画像セクション (本文末尾から縦に配置)
+    // ContentLine を順に描画（テキスト行 / プログレスバー / インライン画像）
     std::unordered_set<std::string> visible;
-    int textBottomYPx = (int)TOP_CONTENT_Y
-        + (int)((float)(totalLines - scroll) * LINE_HEIGHT);
-    for (int i = 0; i < imgCount; ++i) {
-        int yPx = textBottomYPx + i * (IMG_BLOCK_H + IMG_GAP_PX);
-        // 可視判定: 画面範囲 ± IMG_BLOCK_H (隣接 1 枚先読み)
-        if (yPx + IMG_BLOCK_H > -IMG_BLOCK_H && yPx < TOP_H + IMG_BLOCK_H) {
-            visible.insert(art.imageUrls[i]);
+    int displayY = 0;
+    for (const auto& cl : lines) {
+        int clLines = (cl.kind == LineKind::Image) ? IMG_INLINE_LINES : 1;
+
+        if (displayY + clLines > scroll && displayY < scroll + TOP_MAX_LINES) {
+            float screenY = TOP_CONTENT_Y + (float)(displayY - scroll) * LINE_HEIGHT;
+
+            if (cl.kind == LineKind::Text) {
+                drawText(cl.text.c_str(), TEXT_MARGIN_X, screenY, 0.5f,
+                         TEXT_SCALE, TEXT_SCALE, CLR_TEXT);
+            } else {
+                visible.insert(cl.imageUrl);
+                const CachedImage* c = state.imgCache.get(cl.imageUrl);
+
+                if (c && c->state == ImgState::Ready) {
+                    float maxW  = TOP_W - TEXT_MARGIN_X * 2.0f;
+                    float maxH  = (float)IMG_INLINE_H;
+                    float scaleX = (c->imgW > 0) ? (maxW / (float)c->imgW) : 1.0f;
+                    float scaleY = (c->imgH > 0) ? (maxH / (float)c->imgH) : 1.0f;
+                    float s = (scaleX < scaleY) ? scaleX : scaleY;
+                    if (s > 1.0f) s = 1.0f;  // アップスケールしない
+                    C2D_Image img{ const_cast<C3D_Tex*>(&c->tex),
+                                   const_cast<Tex3DS_SubTexture*>(&c->sub) };
+                    C2D_DrawImageAt(img, TEXT_MARGIN_X, screenY, 0.5f, nullptr, s, s);
+                } else if (c && c->state == ImgState::Failed) {
+                    drawText("[image failed]", TEXT_MARGIN_X, screenY + LINE_HEIGHT,
+                             0.5f, TEXT_SCALE, TEXT_SCALE, CLR_ERROR);
+                } else {
+                    // プログレスバー（既存コードを流用）
+                    constexpr float BAR_H = 10.0f;
+                    constexpr float BAR_W = TOP_W - TEXT_MARGIN_X * 2.0f;
+                    float barY = screenY + 6.0f;
+                    C2D_DrawRectSolid(TEXT_MARGIN_X, barY, 0.5f, BAR_W, BAR_H,
+                                      C2D_Color32(0x40, 0x40, 0x60, 0xFF));
+                    float pct = state.imgCache.getProgress(cl.imageUrl);
+                    if (pct > 0.0f)
+                        C2D_DrawRectSolid(TEXT_MARGIN_X, barY, 0.5f, BAR_W * pct, BAR_H,
+                                          CLR_TITLE);
+                    char pctBuf[20];
+                    snprintf(pctBuf, sizeof(pctBuf), "Loading... %d%%", (int)(pct * 100.0f));
+                    drawText(pctBuf, TEXT_MARGIN_X, barY + BAR_H + 3.0f, 0.5f,
+                             TEXT_SCALE, TEXT_SCALE, CLR_HINT);
+                }
+            }
         }
-        // 描画は画面内のみ
-        if (yPx + IMG_BLOCK_H < (int)TOP_CONTENT_Y || yPx > TOP_H) continue;
-        const CachedImage* c = state.imgCache.get(art.imageUrls[i]);
-        if (c && c->state == ImgState::Ready) {
-            C2D_Image img{ const_cast<C3D_Tex*>(&c->tex),
-                           const_cast<Tex3DS_SubTexture*>(&c->sub) };
-            C2D_DrawImageAt(img, TEXT_MARGIN_X, (float)yPx, 0.5f,
-                            nullptr, 1.0f, 1.0f);
-        } else if (c && c->state == ImgState::Failed) {
-            drawText("[image failed]", TEXT_MARGIN_X, (float)yPx, 0.5f,
-                     TEXT_SCALE, TEXT_SCALE, CLR_ERROR);
-        } else {
-            // プログレスバー
-            constexpr float BAR_H = 10.0f;
-            constexpr float BAR_W = TOP_W - TEXT_MARGIN_X * 2.0f;
-            float barY = (float)yPx + 6.0f;
-            C2D_DrawRectSolid(TEXT_MARGIN_X, barY, 0.5f, BAR_W, BAR_H,
-                               C2D_Color32(0x40, 0x40, 0x60, 0xFF));
-            float pct = state.imgCache.getProgress(art.imageUrls[i]);
-            if (pct > 0.0f)
-                C2D_DrawRectSolid(TEXT_MARGIN_X, barY, 0.5f, BAR_W * pct, BAR_H,
-                                   CLR_TITLE);
-            char pctBuf[20];
-            snprintf(pctBuf, sizeof(pctBuf), "Loading... %d%%", (int)(pct * 100.0f));
-            drawText(pctBuf, TEXT_MARGIN_X, barY + BAR_H + 3.0f, 0.5f,
-                     TEXT_SCALE, TEXT_SCALE, CLR_HINT);
-        }
+
+        displayY += clLines;
+        if (displayY >= scroll + TOP_MAX_LINES) break;
     }
     state.imgCache.tick(visible);
 
@@ -565,9 +610,11 @@ static void drawArticleView(const AppState& state) {
              displayScroll, totalDisplayLines);
     drawText(scrollInfo, TEXT_MARGIN_X, BOT_H - 30.0f, 0.5f,
              TEXT_SCALE, TEXT_SCALE, CLR_HINT);
+
     bool hasReadyImg = false;
-    for (const auto& u : art.imageUrls) {
-        const CachedImage* ci = state.imgCache.get(u);
+    for (const auto& cl : lines) {
+        if (cl.kind != LineKind::Image) continue;
+        const CachedImage* ci = state.imgCache.get(cl.imageUrl);
         if (ci && ci->state == ImgState::Ready) { hasReadyImg = true; break; }
     }
     const char* guide;
@@ -841,25 +888,33 @@ void uiHandleInput(AppState& state, u32 kDown, u32 kHeld, u32 kRepeat) {
                         art.fullFetched = true;
                         state.scrollY   = 0;
                     }
-                } else if (!art.imageUrls.empty()) {
-                    // スクロール位置から画面中央に最も近い画像を選ぶ
-                    int textLines = (int)state.articleLines.size();
-                    float textBottomY = TOP_CONTENT_Y
-                        + (float)(textLines - state.scrollY) * LINE_HEIGHT;
-                    float screenMid = TOP_H / 2.0f;
-                    int bestIdx = -1;
+                } else {
+                    // 可視エリアの Image ContentLine から画面中央に最も近い Ready 画像を選ぶ
+                    std::string bestUrl;
                     float bestDist = 1e9f;
-                    for (int i = 0; i < (int)art.imageUrls.size(); ++i) {
-                        const CachedImage* ci = state.imgCache.get(art.imageUrls[i]);
-                        if (!ci || ci->state != ImgState::Ready) continue;
-                        float cy = textBottomY + i * (IMG_BLOCK_H + IMG_GAP_PX)
-                                   + IMG_BLOCK_H / 2.0f;
-                        float d = cy - screenMid;
-                        if (d < 0.0f) d = -d;
-                        if (d < bestDist) { bestDist = d; bestIdx = i; }
+                    int dispY = 0;
+                    int sc = state.scrollY < state.cachedMaxScroll
+                        ? state.scrollY : state.cachedMaxScroll;
+                    for (const auto& cl : state.articleLines) {
+                        int clLines = (cl.kind == LineKind::Image) ? IMG_INLINE_LINES : 1;
+                        if (cl.kind == LineKind::Image
+                                && dispY + clLines > sc
+                                && dispY < sc + TOP_MAX_LINES) {
+                            const CachedImage* ci = state.imgCache.get(cl.imageUrl);
+                            if (ci && ci->state == ImgState::Ready) {
+                                float screenY = TOP_CONTENT_Y
+                                    + (float)(dispY - sc) * LINE_HEIGHT;
+                                float cy = screenY + (float)IMG_INLINE_H / 2.0f;
+                                float d = cy - (float)TOP_H / 2.0f;
+                                if (d < 0.0f) d = -d;
+                                if (d < bestDist) { bestDist = d; bestUrl = cl.imageUrl; }
+                            }
+                        }
+                        dispY += clLines;
+                        if (dispY >= sc + TOP_MAX_LINES) break;
                     }
-                    if (bestIdx >= 0) {
-                        state.imageViewUrl  = art.imageUrls[bestIdx];
+                    if (!bestUrl.empty()) {
+                        state.imageViewUrl  = bestUrl;
                         state.imageViewZoom = 1.0f;
                         state.imageViewOffX = 0.0f;
                         state.imageViewOffY = 0.0f;
