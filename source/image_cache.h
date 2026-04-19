@@ -73,7 +73,7 @@ public:
      * @returns `0.0`–`1.0` progress for the URL, or `-1.0` if no ImageLoader is attached or progress is unavailable.
      */
     float getProgress(const std::string& url) {
-        return loader_ ? loader_->getProgress(url) : -1.0f;
+        return loader_ ? loader_->getProgress(url) : 0.0f;
     }
 
 private:
