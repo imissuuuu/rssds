@@ -34,6 +34,7 @@ struct AppState {
     mutable int cachedLineFeed    = -1;
     mutable int cachedLineArticle = -1;
     mutable size_t cachedLineContentSize = 0;
+    mutable int cachedMaxScroll   = 0;
 
     // Phase 7 Stage 2: 画像ロード/キャッシュ (ArticleView 表示中のみ有効)
     mutable ImageLoader imgLoader;

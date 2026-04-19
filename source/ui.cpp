@@ -474,6 +474,7 @@ static void drawArticleView(const AppState& state) {
     int totalDisplayLines = totalLines + extraLines;
     int maxScroll  = totalDisplayLines > TOP_MAX_LINES
         ? totalDisplayLines - TOP_MAX_LINES : 0;
+    state.cachedMaxScroll = maxScroll;
     int scroll     = state.scrollY < maxScroll ? state.scrollY : maxScroll;
 
     for (int i = 0; i < TOP_MAX_LINES && (scroll + i) < totalLines; ++i) {
@@ -719,7 +720,7 @@ void uiHandleInput(AppState& state, u32 kDown, u32 kHeld, u32 kRepeat) {
             break;
         }
         case Screen::ArticleView: {
-            if (kRepeat & KEY_DOWN) ++state.scrollY;
+            if ((kRepeat & KEY_DOWN) && state.scrollY < state.cachedMaxScroll) ++state.scrollY;
             if ((kRepeat & KEY_UP) && state.scrollY > 0) --state.scrollY;
             if ((kDown & KEY_A)) {
                 Article& art = state.feeds[state.selectedFeed]
