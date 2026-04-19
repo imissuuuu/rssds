@@ -102,6 +102,7 @@ int main() {
     state.feedLoaded.resize(state.feedConfigs.size(), false);
 
     settingsLoad(state.settings);
+    state.imgViewLoader.setMaxDim(1024);
 
     KeyRepeatState repeatState;
 

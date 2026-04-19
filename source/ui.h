@@ -48,7 +48,7 @@ struct AppState {
     float       imageViewZoom = 1.0f;
     float       imageViewOffX = 0.0f;
     float       imageViewOffY = 0.0f;
-    // 高解像度ローダー (512px, ImageView 専用)
+    // 高解像度ローダー (1024px, ImageView 専用)
     mutable ImageLoader imgViewLoader;
     mutable ImageCache  imgViewCache;
 };

@@ -847,23 +847,22 @@ void uiHandleInput(AppState& state, u32 kDown, u32 kHeld, u32 kRepeat) {
                     float textBottomY = TOP_CONTENT_Y
                         + (float)(textLines - state.scrollY) * LINE_HEIGHT;
                     float screenMid = TOP_H / 2.0f;
-                    int bestIdx = 0;
+                    int bestIdx = -1;
                     float bestDist = 1e9f;
                     for (int i = 0; i < (int)art.imageUrls.size(); ++i) {
+                        const CachedImage* ci = state.imgCache.get(art.imageUrls[i]);
+                        if (!ci || ci->state != ImgState::Ready) continue;
                         float cy = textBottomY + i * (IMG_BLOCK_H + IMG_GAP_PX)
                                    + IMG_BLOCK_H / 2.0f;
                         float d = cy - screenMid;
                         if (d < 0.0f) d = -d;
                         if (d < bestDist) { bestDist = d; bestIdx = i; }
                     }
-                    const CachedImage* c = state.imgCache.get(art.imageUrls[bestIdx]);
-                    if (c && c->state == ImgState::Ready) {
+                    if (bestIdx >= 0) {
                         state.imageViewUrl  = art.imageUrls[bestIdx];
                         state.imageViewZoom = 1.0f;
                         state.imageViewOffX = 0.0f;
                         state.imageViewOffY = 0.0f;
-                        // 高解像度で再ダウンロード
-                        state.imgViewLoader.setMaxDim(1024);
                         state.imgViewLoader.start();
                         state.imgViewCache.attach(&state.imgViewLoader);
                         state.imgViewCache.resetForArticle({state.imageViewUrl});
