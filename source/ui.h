@@ -8,7 +8,7 @@
 #include <vector>
 #include <string>
 
-enum class Screen { FeedList, Loading, LoadingAll, ArticleList, ArticleView, Settings };
+enum class Screen { FeedList, Loading, LoadingAll, ArticleList, ArticleView, ImageView, Settings };
 
 struct AppState {
     Screen currentScreen = Screen::FeedList;
@@ -42,6 +42,15 @@ struct AppState {
     mutable ImageCache  imgCache;
     mutable int cachedImagesFeed    = -1;
     mutable int cachedImagesArticle = -1;
+
+    // Phase 7.6: 画像拡大ビュー
+    std::string imageViewUrl;
+    float       imageViewZoom = 1.0f;
+    float       imageViewOffX = 0.0f;
+    float       imageViewOffY = 0.0f;
+    // 高解像度ローダー (1024px, ImageView 専用)
+    mutable ImageLoader imgViewLoader;
+    mutable ImageCache  imgViewCache;
 };
 
 void uiInit();

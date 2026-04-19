@@ -117,7 +117,7 @@ void ImageCache::uploadOne(DecodedImage&& d,
 
     int texW = nextPOT(d.imgW);
     int texH = nextPOT(d.imgH);
-    if (texW > 256 || texH > 256 || d.imgW <= 0 || d.imgH <= 0) {
+    if (texW > 1024 || texH > 1024 || d.imgW <= 0 || d.imgH <= 0) {
         c.state = ImgState::Failed;
         return;
     }

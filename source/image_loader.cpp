@@ -93,7 +93,7 @@ static void bilinearResize(const uint8_t* src, int sw, int sh,
  * @param xferUd Opaque user pointer forwarded to `xferFn`.
  */
 static void processOne(const std::string& url, DecodedImage& out,
-                        XferInfoFn xferFn, void* xferUd) {
+                        XferInfoFn xferFn, void* xferUd, int maxDim) {
     std::string err;
     std::vector<uint8_t> bin = httpGetBinary(url, MAX_BYTES, err, xferFn, xferUd);
     if (bin.empty()) { out.failed = true; return; }
@@ -109,10 +109,10 @@ static void processOne(const std::string& url, DecodedImage& out,
 
     int dw, dh;
     if (w >= h) {
-        dw = (w > MAX_DIM) ? MAX_DIM : w;
+        dw = (w > maxDim) ? maxDim : w;
         dh = h * dw / w;
     } else {
-        dh = (h > MAX_DIM) ? MAX_DIM : h;
+        dh = (h > maxDim) ? maxDim : h;
         dw = w * dh / h;
     }
     if (dw < 1) dw = 1;
@@ -250,7 +250,7 @@ void ImageLoader::workerMain() {
         DecodedImage out;
         out.url = url;
         XferCbCtx pctx { this, &url };
-        processOne(url, out, xferInfoCb, &pctx);
+        processOne(url, out, xferInfoCb, &pctx, maxDim_);
 
         LightLock_Lock(&lock_);
         results_.push_back(std::move(out));
