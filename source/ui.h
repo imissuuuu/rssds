@@ -8,7 +8,7 @@
 #include <vector>
 #include <string>
 
-enum class Screen { FeedList, Loading, ArticleList, ArticleView, Settings };
+enum class Screen { FeedList, Loading, LoadingAll, ArticleList, ArticleView, Settings };
 
 struct AppState {
     Screen currentScreen = Screen::FeedList;
@@ -23,7 +23,8 @@ struct AppState {
     int selectedFeed        = 0;
     int selectedArticle     = 0;
     int scrollY             = 0;
-    int articleListScrollX  = 0;  // 記事一覧: 選択タイトルの水平スクロール量(px)
+    int articleListScrollX  = 0;
+    int refreshIdx          = 0;  // 記事一覧: 選択タイトルの水平スクロール量(px)
     std::string statusMsg;
 
     AppSettings settings;

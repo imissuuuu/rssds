@@ -123,6 +123,37 @@ int main() {
             kRepeat = computeRepeat(kDown, kHeld, repeatState, 200, 167);
         }
 
+        // LoadingAll 状態: 全フィードを順番にリフレッシュ
+        if (state.currentScreen == Screen::LoadingAll) {
+            int idx = state.refreshIdx;
+            if (!netOk || idx >= (int)state.feedConfigs.size()) {
+                state.statusMsg     = netOk ? "" : "Network unavailable.";
+                state.currentScreen = Screen::FeedList;
+            } else {
+                const std::string& name = state.feedConfigs[idx].name;
+                char buf[128];
+                snprintf(buf, sizeof(buf), "Refreshing %d/%d: %s",
+                         idx + 1, (int)state.feedConfigs.size(),
+                         name.empty() ? state.feedConfigs[idx].url.c_str() : name.c_str());
+                state.statusMsg = buf;
+                C3D_FrameBegin(C3D_FRAME_SYNCDRAW);
+                uiDraw(state);
+                C3D_FrameEnd(0);
+
+                std::string errMsg;
+                std::string xml = httpGet(state.feedConfigs[idx].url, errMsg);
+                if (!xml.empty()) {
+                    state.feeds[idx]      = parseFeed(xml, errMsg);
+                    state.feedLoaded[idx] = true;
+                }
+                ++state.refreshIdx;
+            }
+            C3D_FrameBegin(C3D_FRAME_SYNCDRAW);
+            uiDraw(state);
+            C3D_FrameEnd(0);
+            continue;
+        }
+
         // Loading 状態: 前フレームで Loading 画面が表示済み → フェッチ実行
         if (state.currentScreen == Screen::Loading) {
             int idx = state.selectedFeed;

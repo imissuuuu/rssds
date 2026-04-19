@@ -371,7 +371,7 @@ static void drawFeedList(const AppState& state) {
                  TEXT_MARGIN_Y + LINE_HEIGHT, 0.5f, TEXT_SCALE, TEXT_SCALE, CLR_HINT);
     }
 
-    drawText("Up/Down:move  A:open/enter  START:quit", TEXT_MARGIN_X, BOT_H - 16.0f,
+    drawText("Up/Down:move  A:open/enter  Y:refresh  START:quit", TEXT_MARGIN_X, BOT_H - 16.0f,
              0.5f, 0.42f, 0.42f, CLR_HINT);
 }
 
@@ -430,7 +430,7 @@ static void drawArticleList(const AppState& state) {
                  TEXT_SCALE, TEXT_SCALE, CLR_HINT);
     }
 
-    drawText("Up/Down:move  A:read  B:back", TEXT_MARGIN_X, BOT_H - 16.0f,
+    drawText("Up/Down:move  A:read  Y:refresh  B:back", TEXT_MARGIN_X, BOT_H - 16.0f,
              0.5f, 0.42f, 0.42f, CLR_HINT);
 }
 
@@ -593,6 +593,7 @@ void uiDraw(const AppState& state) {
     switch (state.currentScreen) {
         case Screen::FeedList:    drawFeedList(state);      break;
         case Screen::Loading:     drawLoadingScreen(state); break;
+        case Screen::LoadingAll:  drawLoadingScreen(state); break;
         case Screen::ArticleList: drawArticleList(state);   break;
         case Screen::ArticleView: drawArticleView(state);   break;
         case Screen::Settings:    drawSettings(state);      break;
@@ -626,9 +627,18 @@ void uiHandleInput(AppState& state, u32 kDown, u32 kHeld, u32 kRepeat) {
                 }
                 kDown &= ~KEY_A;  // coding-patterns #6
             }
+            if (kDown & KEY_Y) {
+                for (size_t i = 0; i < state.feedLoaded.size(); ++i)
+                    state.feedLoaded[i] = false;
+                state.refreshIdx    = 0;
+                state.statusMsg     = "Refreshing...";
+                state.currentScreen = Screen::LoadingAll;
+                kDown &= ~KEY_Y;
+            }
             break;
         }
         case Screen::Loading:
+        case Screen::LoadingAll:
             // main.cpp のループで処理するため入力は無視
             break;
         case Screen::ArticleList: {
@@ -675,6 +685,13 @@ void uiHandleInput(AppState& state, u32 kDown, u32 kHeld, u32 kRepeat) {
                     && !art.link.empty()) {
                     doFetchArticle(art, state, "Loading article...");
                 }
+            }
+            if (kDown & KEY_Y) {
+                state.feedLoaded[idx] = false;
+                const FeedConfig& cfg = state.feedConfigs[idx];
+                state.statusMsg = cfg.name.empty() ? cfg.url : cfg.name;
+                state.currentScreen = Screen::Loading;
+                kDown &= ~KEY_Y;
             }
             if (kDown & KEY_B) {
                 state.currentScreen      = Screen::FeedList;
