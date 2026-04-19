@@ -106,6 +106,35 @@ std::string stripHtml(const std::string& html) {
 
             int nameLen = (int)(nameEnd - tagStart);
 
+            // img タグ: src= を抽出して \x01URL\x01 マーカーを emit（絶対 HTTP(S) URL のみ）
+            if (!isClose && nameLen == 3 && strncasecmp(tagStart, "img", 3) == 0) {
+                const char* tagEnd = p;
+                while (tagEnd < end && *tagEnd != '>') tagEnd++;
+                const char* q = nameEnd;
+                while (q + 3 < tagEnd) {
+                    if (strncasecmp(q, "src=", 4) == 0) {
+                        q += 4;
+                        char quote = (*q == '"' || *q == '\'') ? *q++ : 0;
+                        const char* valStart = q;
+                        if (quote) { while (q < tagEnd && *q != quote) q++; }
+                        else        { while (q < tagEnd && !isspace((unsigned char)*q) && *q != '>') q++; }
+                        std::string src(valStart, q - valStart);
+                        if ((src.compare(0, 7, "http://")  == 0 ||
+                             src.compare(0, 8, "https://") == 0) &&
+                            src.compare(0, 5, "data:") != 0) {
+                            result += '\x01';
+                            result += src;
+                            result += '\x01';
+                        }
+                        break;
+                    }
+                    q++;
+                }
+                p = tagEnd;
+                if (p < end) p++;
+                continue;
+            }
+
             // script / style は中身ごとスキップ
             if (!isClose && isSkipContentTag(tagStart, nameLen)) {
                 // '>' まで読み飛ばして開始タグを閉じる

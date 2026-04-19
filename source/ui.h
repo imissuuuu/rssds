@@ -10,6 +10,14 @@
 
 enum class Screen { FeedList, Loading, LoadingAll, ArticleList, ArticleView, ImageView, Settings };
 
+enum class LineKind : uint8_t { Text, Image };
+
+struct ContentLine {
+    LineKind    kind     = LineKind::Text;
+    std::string text;      // LineKind::Text のとき使用
+    std::string imageUrl;  // LineKind::Image のとき使用
+};
+
 struct AppState {
     Screen currentScreen = Screen::FeedList;
 
@@ -30,8 +38,8 @@ struct AppState {
     AppSettings settings;
     int settingsSelectedItem = 0;
 
-    // ArticleView 描画キャッシュ（毎フレームの wrapText 再計算を防ぐ）
-    mutable std::vector<std::string> articleLines;
+    // ArticleView 描画キャッシュ（毎フレームの parseContentLines 再計算を防ぐ）
+    mutable std::vector<ContentLine> articleLines;
     mutable int cachedLineFeed    = -1;
     mutable int cachedLineArticle = -1;
     mutable size_t cachedLineContentSize = 0;
