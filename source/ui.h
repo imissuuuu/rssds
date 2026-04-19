@@ -2,6 +2,8 @@
 #include "rss.h"
 #include "feed_config.h"
 #include "settings.h"
+#include "image_loader.h"
+#include "image_cache.h"
 #include <3ds.h>
 #include <vector>
 #include <string>
@@ -32,6 +34,13 @@ struct AppState {
     mutable int cachedLineFeed    = -1;
     mutable int cachedLineArticle = -1;
     mutable size_t cachedLineContentSize = 0;
+    mutable int cachedMaxScroll   = 0;
+
+    // Phase 7 Stage 2: 画像ロード/キャッシュ (ArticleView 表示中のみ有効)
+    mutable ImageLoader imgLoader;
+    mutable ImageCache  imgCache;
+    mutable int cachedImagesFeed    = -1;
+    mutable int cachedImagesArticle = -1;
 };
 
 void uiInit();

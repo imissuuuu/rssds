@@ -22,6 +22,7 @@ extern "C" {
 // =============================================================================
 
 static const size_t MAX_HTML_BYTES = 256 * 1024;
+static const size_t MAX_IMAGE_URLS = 10;
 
 // pre-clean: サブツリーごと即削除するタグ
 static const char* UNLIKELY_TAGS[] = {
@@ -122,6 +123,62 @@ static size_t countCharsUtf8(const lxb_char_t* s, size_t byteLen) {
         ++count;
     }
     return count;
+}
+
+// =============================================================================
+// URL 解決（<img src> の相対URLを base URL 基準で絶対化）
+// =============================================================================
+
+// base URL から scheme://host[:port] の部分を取り出す。見つからなければ空。
+static std::string urlOrigin(const std::string& base) {
+    size_t schemeEnd = base.find("://");
+    if (schemeEnd == std::string::npos) return {};
+    size_t pathStart = base.find('/', schemeEnd + 3);
+    if (pathStart == std::string::npos) return base;
+    return base.substr(0, pathStart);
+}
+
+// base URL の「ディレクトリ部分」（末尾スラッシュ込）を取り出す。
+// 例: "https://a.com/x/y.html" → "https://a.com/x/"
+static std::string urlDir(const std::string& base) {
+    size_t schemeEnd = base.find("://");
+    size_t searchFrom = (schemeEnd == std::string::npos) ? 0 : schemeEnd + 3;
+    size_t lastSlash = base.rfind('/');
+    if (lastSlash == std::string::npos || lastSlash < searchFrom) {
+        return base + "/";
+    }
+    return base.substr(0, lastSlash + 1);
+}
+
+// クエリ/フラグメントを除いた ref が空・無効な場合は空文字を返す。
+static std::string resolveUrl(const std::string& base, const std::string& ref) {
+    if (ref.empty()) return {};
+    if (ref[0] == '#') return {};                          // フラグメントのみ
+    if (ref.compare(0, 5, "data:") == 0) return {};        // data URL は除外
+
+    // 既に絶対URL
+    if (ref.compare(0, 7, "http://")  == 0) return ref;
+    if (ref.compare(0, 8, "https://") == 0) return ref;
+
+    // protocol-relative: "//host/path"
+    if (ref.size() >= 2 && ref[0] == '/' && ref[1] == '/') {
+        size_t schemeEnd = base.find("://");
+        std::string scheme = (schemeEnd == std::string::npos)
+            ? std::string("https") : base.substr(0, schemeEnd);
+        return scheme + ":" + ref;
+    }
+
+    // absolute path: "/path"
+    if (!ref.empty() && ref[0] == '/') {
+        std::string origin = urlOrigin(base);
+        if (origin.empty()) return {};
+        return origin + ref;
+    }
+
+    // relative path
+    std::string dir = urlDir(base);
+    if (dir.empty()) return {};
+    return dir + ref;
 }
 
 // =============================================================================
@@ -432,29 +489,60 @@ static void postClean(lxb_dom_node_t* subtree) {
 // テキスト化
 // =============================================================================
 
+struct SerializeCtx {
+    std::string*              out;
+    std::vector<std::string>* imageUrls;  // nullable: 画像URL収集先
+    const std::string*        baseUrl;    // nullable: 相対URL解決用
+};
+
 static lexbor_action_t serialize_cb(lxb_dom_node_t* node, void* ctx) {
-    auto* out = static_cast<std::string*>(ctx);
+    auto* c = static_cast<SerializeCtx*>(ctx);
     if (node->type == LXB_DOM_NODE_TYPE_ELEMENT) {
         if (tagIn(node, SKIP_SUBTREE)) return LEXBOR_ACTION_NEXT;
+        // <img> は本文テキストを持たないが、画像URL収集の対象
+        if (tagEq(node, "img")) {
+            if (c->imageUrls && c->imageUrls->size() < MAX_IMAGE_URLS) {
+                size_t alen = 0;
+                const lxb_char_t* src = getAttr(node, "src", &alen);
+                if (src && alen > 0) {
+                    std::string ref((const char*)src, alen);
+                    std::string abs = c->baseUrl
+                        ? resolveUrl(*c->baseUrl, ref)
+                        : (ref.compare(0,7,"http://")==0 || ref.compare(0,8,"https://")==0 ? ref : std::string());
+                    if (!abs.empty()) {
+                        // 重複排除（同一URLの複数出現を弾く）
+                        bool dup = false;
+                        for (const auto& u : *c->imageUrls) {
+                            if (u == abs) { dup = true; break; }
+                        }
+                        if (!dup) c->imageUrls->push_back(std::move(abs));
+                    }
+                }
+            }
+            return LEXBOR_ACTION_NEXT;  // <img> に子テキストは無い
+        }
         if (tagIn(node, BLOCK_TAGS)) {
-            if (!out->empty() && out->back() != '\n')
-                *out += '\n';
+            if (!c->out->empty() && c->out->back() != '\n')
+                *c->out += '\n';
         }
         return LEXBOR_ACTION_OK;
     }
     if (node->type == LXB_DOM_NODE_TYPE_TEXT) {
         size_t len = 0;
         lxb_char_t* txt = lxb_dom_node_text_content(node, &len);
-        if (txt) out->append((char*)txt, len);
+        if (txt) c->out->append((char*)txt, len);
     }
     return LEXBOR_ACTION_OK;
 }
 
-static std::string serializeText(const std::vector<lxb_dom_node_t*>& nodes) {
+static std::string serializeText(const std::vector<lxb_dom_node_t*>& nodes,
+                                  const std::string* baseUrl,
+                                  std::vector<std::string>* outImageUrls) {
     std::string result;
     result.reserve(8192);
+    SerializeCtx c { &result, outImageUrls, baseUrl };
     for (auto* n : nodes) {
-        lxb_dom_node_simple_walk(n, serialize_cb, &result);
+        lxb_dom_node_simple_walk(n, serialize_cb, &c);
         if (!result.empty() && result.back() != '\n')
             result += '\n';
     }
@@ -522,7 +610,8 @@ static inline void notify(ReadabilityProgressCb cb, void* user,
 std::string extractContent(const std::string& html,
                            const std::string& url,
                            ReadabilityProgressCb cb,
-                           void* cb_user) {
+                           void* cb_user,
+                           std::vector<std::string>* outImageUrls) {
     u64 t_start = osGetTime();
     const char* logStatus = "OK";
     const char* logWinner = "body";
@@ -595,8 +684,10 @@ std::string extractContent(const std::string& html,
     for (auto* n : selected) postClean(n);
     notify(cb, cb_user, 80, ReadabilityStage::PostClean);
 
-    // 5. テキスト化
-    std::string result = normalizeNewlines(serializeText(selected));
+    // 5. テキスト化（同時に画像URL収集）
+    const std::string* basePtr = url.empty() ? nullptr : &url;
+    std::string result = normalizeNewlines(
+        serializeText(selected, basePtr, outImageUrls));
 
     lxb_html_document_destroy(doc);
 

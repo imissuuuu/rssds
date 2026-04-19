@@ -6,6 +6,7 @@
 #include <cstdio>
 #include <cstring>
 #include <ctime>
+#include <unordered_set>
 
 static constexpr int CONTENT_SHORT_THRESHOLD = 200;
 
@@ -446,6 +447,13 @@ static void drawArticleView(const AppState& state) {
         state.cachedLineFeed        = state.selectedFeed;
         state.cachedLineArticle     = state.selectedArticle;
         state.cachedLineContentSize = art.content.size();
+
+        // 画像キャッシュも同タイミングで再構築 (Stage 2)
+        state.imgLoader.start();
+        state.imgCache.attach(&state.imgLoader);
+        state.imgCache.resetForArticle(art.imageUrls);
+        state.cachedImagesFeed    = state.selectedFeed;
+        state.cachedImagesArticle = state.selectedArticle;
     }
     const std::vector<std::string>& lines = state.articleLines;
 
@@ -454,8 +462,19 @@ static void drawArticleView(const AppState& state) {
     C2D_SceneBegin(topTarget);
     drawStatusBar();
 
+    constexpr int IMG_GAP_PX  = 6;
+    constexpr int IMG_BLOCK_H = 256;  // 画像表示枠 (実画像が小さくても予約)
+
     int totalLines = (int)lines.size();
-    int maxScroll  = totalLines > TOP_MAX_LINES ? totalLines - TOP_MAX_LINES : 0;
+    int imgCount   = (int)art.imageUrls.size();
+    int imgPixels  = imgCount * (IMG_BLOCK_H + IMG_GAP_PX);
+    int extraLines = imgCount > 0
+        ? (imgPixels + (int)LINE_HEIGHT - 1) / (int)LINE_HEIGHT
+        : 0;
+    int totalDisplayLines = totalLines + extraLines;
+    int maxScroll  = totalDisplayLines > TOP_MAX_LINES
+        ? totalDisplayLines - TOP_MAX_LINES : 0;
+    state.cachedMaxScroll = maxScroll;
     int scroll     = state.scrollY < maxScroll ? state.scrollY : maxScroll;
 
     for (int i = 0; i < TOP_MAX_LINES && (scroll + i) < totalLines; ++i) {
@@ -463,6 +482,34 @@ static void drawArticleView(const AppState& state) {
         drawText(lines[scroll + i].c_str(), TEXT_MARGIN_X, y, 0.5f,
                  TEXT_SCALE, TEXT_SCALE, CLR_TEXT);
     }
+
+    // 画像セクション (本文末尾から縦に配置)
+    std::unordered_set<std::string> visible;
+    int textBottomYPx = (int)TOP_CONTENT_Y
+        + (int)((float)(totalLines - scroll) * LINE_HEIGHT);
+    for (int i = 0; i < imgCount; ++i) {
+        int yPx = textBottomYPx + i * (IMG_BLOCK_H + IMG_GAP_PX);
+        // 可視判定: 画面範囲 ± IMG_BLOCK_H (隣接 1 枚先読み)
+        if (yPx + IMG_BLOCK_H > -IMG_BLOCK_H && yPx < TOP_H + IMG_BLOCK_H) {
+            visible.insert(art.imageUrls[i]);
+        }
+        // 描画は画面内のみ
+        if (yPx + IMG_BLOCK_H < (int)TOP_CONTENT_Y || yPx > TOP_H) continue;
+        const CachedImage* c = state.imgCache.get(art.imageUrls[i]);
+        if (c && c->state == ImgState::Ready) {
+            C2D_Image img{ const_cast<C3D_Tex*>(&c->tex),
+                           const_cast<Tex3DS_SubTexture*>(&c->sub) };
+            C2D_DrawImageAt(img, TEXT_MARGIN_X, (float)yPx, 0.5f,
+                            nullptr, 1.0f, 1.0f);
+        } else if (c && c->state == ImgState::Failed) {
+            drawText("[image failed]", TEXT_MARGIN_X, (float)yPx, 0.5f,
+                     TEXT_SCALE, TEXT_SCALE, CLR_ERROR);
+        } else {
+            drawText("[loading...]", TEXT_MARGIN_X, (float)yPx, 0.5f,
+                     TEXT_SCALE, TEXT_SCALE, CLR_HINT);
+        }
+    }
+    state.imgCache.tick(visible);
 
     // 下画面: 記事タイトル + 操作ガイド
     C2D_TargetClear(botTarget, CLR_PANEL);
@@ -527,9 +574,10 @@ static void drawSettings(const AppState& state) {
 static bool doFetchArticle(Article& art, AppState& state, const char* loadingMsg) {
     state.statusMsg = loadingMsg;
     std::string errMsg;
-    std::string body = fetchArticleBody(art.link, errMsg);
-    if (!body.empty()) {
-        art.content     = std::move(body);
+    FetchedArticle fetched = fetchArticleBody2(art.link, errMsg);
+    if (!fetched.body.empty()) {
+        art.content     = std::move(fetched.body);
+        art.imageUrls   = std::move(fetched.imageUrls);
         state.statusMsg = "";
         return true;
     }
@@ -672,7 +720,7 @@ void uiHandleInput(AppState& state, u32 kDown, u32 kHeld, u32 kRepeat) {
             break;
         }
         case Screen::ArticleView: {
-            if (kRepeat & KEY_DOWN) ++state.scrollY;
+            if ((kRepeat & KEY_DOWN) && state.scrollY < state.cachedMaxScroll) ++state.scrollY;
             if ((kRepeat & KEY_UP) && state.scrollY > 0) --state.scrollY;
             if ((kDown & KEY_A)) {
                 Article& art = state.feeds[state.selectedFeed]

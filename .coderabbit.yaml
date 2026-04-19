@@ -1,6 +1,11 @@
 language: "ja"
 
 reviews:
+  auto_review:
+    enabled: true
+    base_branches:
+      - "main"
+      - "dev"
   profile: "assertive"
   instructions: |
     このプロジェクトは Nintendo 3DS 向けの homebrew アプリ（C++）です。
