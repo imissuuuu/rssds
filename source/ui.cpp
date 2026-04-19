@@ -231,7 +231,8 @@ static std::vector<std::string> wrapText(const std::string& src, int maxPixels,
         }
 
         std::string line;
-        if (split == hard) {
+        bool softWrap = (split != hard);
+        if (!softWrap) {
             line = src.substr(pos, hard - pos);
             pos  = hard + (nl != std::string::npos ? 1 : 0);
         } else {
@@ -240,8 +241,14 @@ static std::vector<std::string> wrapText(const std::string& src, int maxPixels,
         }
 
         // 全行で実幅検証（高速推定の過小評価によるオーバーフローを防止）
+        // trimToWidth で削除したバイトを pos に戻す（soft/hard 両経路で消失防止）
+        size_t lineBytes = line.size();
         trimToWidth(line, maxPixels, scale);
-        lines.push_back(std::move(line));
+        size_t trimmed = lineBytes - line.size();
+        if (trimmed > 0 && trimmed < lineBytes)
+            pos -= trimmed;
+        if (!line.empty())
+            lines.push_back(std::move(line));
     }
     return lines;
 }
