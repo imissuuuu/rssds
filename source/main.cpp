@@ -103,6 +103,7 @@ int main() {
 
     settingsLoad(state.settings);
     state.imgViewLoader.setMaxDim(1024);
+    state.articleLoader.start();
 
     KeyRepeatState repeatState;
 
@@ -122,6 +123,34 @@ int main() {
                                     (u32)state.settings.scrollRepeatIntervalMs);
         } else {
             kRepeat = computeRepeat(kDown, kHeld, repeatState, 200, 167);
+        }
+
+        // LoadingArticle 状態: 記事本文の非同期ダウンロード完了待ち
+        if (state.currentScreen == Screen::LoadingArticle) {
+            FetchedArticle result;
+            std::string errMsg;
+            if (state.articleLoader.poll(result, errMsg)) {
+                if (!result.body.empty()) {
+                    auto& art = state.feeds[state.pendingFetchFeed]
+                                      .articles[state.pendingFetchArticle];
+                    art.content   = std::move(result.body);
+                    art.imageUrls = std::move(result.imageUrls);
+                    if (state.pendingFetchFullArticle) art.fullFetched = true;
+                    state.selectedFeed    = state.pendingFetchFeed;
+                    state.selectedArticle = state.pendingFetchArticle;
+                    state.cachedImagesArticle = -1;  // 画像キャッシュ再初期化
+                    state.scrollY         = 0;
+                    state.statusMsg       = "";
+                    state.currentScreen   = Screen::ArticleView;
+                } else {
+                    state.statusMsg     = std::string("Fetch failed: ") + errMsg;
+                    state.currentScreen = state.pendingReturnScreen;
+                }
+            }
+            C3D_FrameBegin(C3D_FRAME_SYNCDRAW);
+            uiDraw(state);
+            C3D_FrameEnd(0);
+            continue;
         }
 
         // LoadingAll 状態: 全フィードを順番にリフレッシュ
@@ -197,6 +226,7 @@ int main() {
 
     // 終了処理（coding-patterns #2 の順序を遵守）
     // worker thread を最初に停止 → 画像テクスチャを C3D 生存中に解放
+    state.articleLoader.stop();
     state.imgViewLoader.stop();
     state.imgViewCache.resetForArticle({});
     state.imgLoader.stop();

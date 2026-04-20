@@ -136,7 +136,27 @@ static std::string sniffCharsetFromBody(const std::string& body) {
     return {};
 }
 
-std::string httpGet(const std::string& url, std::string& errMsg) {
+namespace {
+struct BinaryCtx {
+    std::vector<uint8_t>* buf;
+    size_t                maxBytes;
+    bool                  aborted;
+};
+
+struct XferCtxWrap {
+    XferInfoFn fn;
+    void*      ud;
+};
+}
+
+static int curlXferCb(void* ud, curl_off_t dltotal, curl_off_t dlnow,
+                       curl_off_t, curl_off_t) {
+    auto* w = static_cast<XferCtxWrap*>(ud);
+    return w->fn(w->ud, (int64_t)dltotal, (int64_t)dlnow);
+}
+
+std::string httpGet(const std::string& url, std::string& errMsg,
+                    XferInfoFn progressFn, void* progressUd) {
     CURL* curl = curl_easy_init();
     if (!curl) {
         errMsg = "curl_easy_init failed";
@@ -160,6 +180,13 @@ std::string httpGet(const std::string& url, std::string& errMsg) {
     // ユーザーエージェント: 一部サーバーが空UAをブロックするため設定
     curl_easy_setopt(curl, CURLOPT_USERAGENT,       "3DS-RSSReader/1.0");
 
+    XferCtxWrap xferWrap { progressFn, progressUd };
+    if (progressFn) {
+        curl_easy_setopt(curl, CURLOPT_NOPROGRESS,       0L);
+        curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, curlXferCb);
+        curl_easy_setopt(curl, CURLOPT_XFERINFODATA,     &xferWrap);
+    }
+
     CURLcode res = curl_easy_perform(curl);
     if (res != CURLE_OK) {
         errMsg = curl_easy_strerror(res);
@@ -178,36 +205,6 @@ std::string httpGet(const std::string& url, std::string& errMsg) {
         return sjisToUtf8(body);
     }
     return body;
-}
-
-namespace {
-struct BinaryCtx {
-    std::vector<uint8_t>* buf;
-    size_t                maxBytes;
-    bool                  aborted;
-};
-
-struct XferCtxWrap {
-    XferInfoFn fn;
-    void*      ud;
-};
-}
-
-/**
- * @brief Forwards libcurl transfer-progress updates to the stored progress callback.
- *
- * Extracts the XferCtxWrap provided as userdata and calls its progress function
- * with the wrapped user data and the download total/current values.
- *
- * @param ud Pointer to an XferCtxWrap containing the progress callback and its user data.
- * @param dltotal Total number of bytes expected to be downloaded (forwarded to the callback).
- * @param dlnow Number of bytes downloaded so far (forwarded to the callback).
- * @return int The value returned by the progress callback; a non-zero value will signal libcurl to abort the transfer.
- */
-static int curlXferCb(void* ud, curl_off_t dltotal, curl_off_t dlnow,
-                       curl_off_t, curl_off_t) {
-    auto* w = static_cast<XferCtxWrap*>(ud);
-    return w->fn(w->ud, (int64_t)dltotal, (int64_t)dlnow);
 }
 
 /**

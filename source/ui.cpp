@@ -371,6 +371,20 @@ static void drawLoadingScreen(const AppState& state) {
         drawText(state.statusMsg.c_str(), TEXT_MARGIN_X,
                  TOP_H / 2.0f + 4.0f + STATUSBAR_H / 2.0f, 0.5f, TEXT_SCALE, TEXT_SCALE, CLR_HINT);
     }
+    if (state.currentScreen == Screen::LoadingArticle) {
+        constexpr float BAR_H = 10.0f;
+        constexpr float BAR_W = TOP_W - TEXT_MARGIN_X * 2.0f;
+        float barY = TOP_H / 2.0f + 20.0f + STATUSBAR_H / 2.0f;
+        C2D_DrawRectSolid(TEXT_MARGIN_X, barY, 0.5f, BAR_W, BAR_H,
+                          C2D_Color32(0x40, 0x40, 0x60, 0xFF));
+        float pct = state.articleLoader.getProgress();
+        if (pct > 0.0f)
+            C2D_DrawRectSolid(TEXT_MARGIN_X, barY, 0.5f, BAR_W * pct, BAR_H, CLR_TITLE);
+        char pctBuf[20];
+        snprintf(pctBuf, sizeof(pctBuf), "Loading... %d%%", (int)(pct * 100.0f));
+        drawText(pctBuf, TEXT_MARGIN_X, barY + BAR_H + 3.0f, 0.5f,
+                 TEXT_SCALE, TEXT_SCALE, CLR_HINT);
+    }
     C2D_TargetClear(botTarget, CLR_PANEL);
     C2D_SceneBegin(botTarget);
 }
@@ -709,23 +723,6 @@ static void drawSettings(const AppState& state) {
              TEXT_MARGIN_X, BOT_H - 16.0f, 0.5f, 0.42f, 0.42f, CLR_HINT);
 }
 
-// --- フェッチヘルパー ---
-
-// art.link からHTMLを取得してart.contentを更新する。成功時trueを返す。
-static bool doFetchArticle(Article& art, AppState& state, const char* loadingMsg) {
-    state.statusMsg = loadingMsg;
-    std::string errMsg;
-    FetchedArticle fetched = fetchArticleBody2(art.link, errMsg);
-    if (!fetched.body.empty()) {
-        art.content     = std::move(fetched.body);
-        art.imageUrls   = std::move(fetched.imageUrls);
-        state.statusMsg = "";
-        return true;
-    }
-    state.statusMsg = std::string("Fetch failed: ") + errMsg;
-    return false;
-}
-
 // --- パブリック関数 ---
 
 void uiDraw(const AppState& state) {
@@ -733,8 +730,9 @@ void uiDraw(const AppState& state) {
 
     switch (state.currentScreen) {
         case Screen::FeedList:    drawFeedList(state);      break;
-        case Screen::Loading:     drawLoadingScreen(state); break;
-        case Screen::LoadingAll:  drawLoadingScreen(state); break;
+        case Screen::Loading:        drawLoadingScreen(state); break;
+        case Screen::LoadingAll:     drawLoadingScreen(state); break;
+        case Screen::LoadingArticle: drawLoadingScreen(state); break;
         case Screen::ArticleList: drawArticleList(state);   break;
         case Screen::ArticleView: drawArticleView(state);   break;
         case Screen::ImageView:   drawImageView(state);     break;
@@ -780,6 +778,7 @@ void uiHandleInput(AppState& state, u32 kDown, u32 kHeld, u32 kRepeat) {
         }
         case Screen::Loading:
         case Screen::LoadingAll:
+        case Screen::LoadingArticle:
             // main.cpp のループで処理するため入力は無視
             break;
         case Screen::ArticleList: {
@@ -817,14 +816,20 @@ void uiHandleInput(AppState& state, u32 kDown, u32 kHeld, u32 kRepeat) {
                 }
             }
             if ((kDown & KEY_A) && total > 0) {
-                state.currentScreen = Screen::ArticleView;
-                state.scrollY       = 0;
                 kDown &= ~KEY_A;  // coding-patterns #6
-
                 Article& art = state.feeds[idx].articles[state.selectedArticle];
                 if ((int)art.content.size() < CONTENT_SHORT_THRESHOLD
                     && !art.link.empty()) {
-                    doFetchArticle(art, state, "Loading article...");
+                    state.pendingFetchFeed        = idx;
+                    state.pendingFetchArticle     = state.selectedArticle;
+                    state.pendingFetchFullArticle = false;
+                    state.pendingReturnScreen     = Screen::ArticleList;
+                    state.statusMsg               = "Downloading article...";
+                    state.articleLoader.submit(art.link);
+                    state.currentScreen = Screen::LoadingArticle;
+                } else {
+                    state.currentScreen = Screen::ArticleView;
+                    state.scrollY       = 0;
                 }
             }
             if (kDown & KEY_Y) {
@@ -884,10 +889,14 @@ void uiHandleInput(AppState& state, u32 kDown, u32 kHeld, u32 kRepeat) {
                 Article& art = state.feeds[state.selectedFeed]
                                     .articles[state.selectedArticle];
                 if (!art.fullFetched && !art.link.empty()) {
-                    if (doFetchArticle(art, state, "Loading full article...")) {
-                        art.fullFetched = true;
-                        state.scrollY   = 0;
-                    }
+                    state.pendingFetchFeed        = state.selectedFeed;
+                    state.pendingFetchArticle     = state.selectedArticle;
+                    state.pendingFetchFullArticle = true;
+                    state.pendingReturnScreen     = Screen::ArticleView;
+                    state.statusMsg               = "Downloading full article...";
+                    state.articleLoader.submit(art.link);
+                    state.currentScreen = Screen::LoadingArticle;
+                    kDown &= ~KEY_A;  // coding-patterns #6
                 } else {
                     // 可視エリアの Image ContentLine から画面中央に最も近い Ready 画像を選ぶ
                     std::string bestUrl;
