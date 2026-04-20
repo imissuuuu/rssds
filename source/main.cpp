@@ -104,6 +104,7 @@ int main() {
     settingsLoad(state.settings);
     state.imgViewLoader.setMaxDim(1024);
     state.articleLoader.start();
+    state.feedLoader.start();
 
     KeyRepeatState repeatState;
 
@@ -185,33 +186,36 @@ int main() {
             continue;
         }
 
-        // Loading 状態: 前フレームで Loading 画面が表示済み → フェッチ実行
+        // Loading 状態: フィードの非同期フェッチ完了待ち
         if (state.currentScreen == Screen::Loading) {
             int idx = state.selectedFeed;
-            if (idx >= 0 && idx < (int)state.feedConfigs.size()) {
-                if (state.feedLoaded[idx]) {
-                    // キャッシュ済み
-                    state.currentScreen = Screen::ArticleList;
-                } else if (!netOk) {
-                    state.statusMsg = "Network unavailable.";
-                    state.currentScreen = Screen::FeedList;
-                } else {
-                    std::string errMsg;
-                    std::string xml = httpGet(state.feedConfigs[idx].url, errMsg);
-                    if (xml.empty()) {
-                        state.statusMsg = std::string("Fetch failed: ") + errMsg;
-                        state.currentScreen = Screen::FeedList;
-                    } else {
-                        state.feeds[idx] = parseFeed(xml, errMsg);
+            if (idx < 0 || idx >= (int)state.feedConfigs.size()) {
+                state.currentScreen = Screen::FeedList;
+            } else if (state.feedLoaded[idx]) {
+                // キャッシュ済み: ローダー未使用なので即遷移
+                state.statusMsg     = "";
+                state.currentScreen = Screen::ArticleList;
+            } else if (!netOk) {
+                state.statusMsg     = "Network unavailable.";
+                state.currentScreen = Screen::FeedList;
+            } else {
+                if (!state.feedJobSubmitted) {
+                    state.feedLoader.submit(state.feedConfigs[idx].url);
+                    state.feedJobSubmitted = true;
+                }
+                FetchedFeed result;
+                if (state.feedLoader.poll(result)) {
+                    if (result.errMsg.empty()) {
+                        state.feeds[idx]      = std::move(result.feed);
                         state.feedLoaded[idx] = true;
-                        state.statusMsg = "";
-                        state.currentScreen = Screen::ArticleList;
+                        state.statusMsg       = "";
+                        state.currentScreen   = Screen::ArticleList;
+                    } else {
+                        state.statusMsg     = std::string("Fetch failed: ") + result.errMsg;
+                        state.currentScreen = Screen::FeedList;
                     }
                 }
-            } else {
-                state.currentScreen = Screen::FeedList;
             }
-            // Loading 中は入力処理をスキップして描画のみ行う
             C3D_FrameBegin(C3D_FRAME_SYNCDRAW);
             uiDraw(state);
             C3D_FrameEnd(0);
@@ -227,6 +231,7 @@ int main() {
 
     // 終了処理（coding-patterns #2 の順序を遵守）
     // worker thread を最初に停止 → 画像テクスチャを C3D 生存中に解放
+    state.feedLoader.stop();
     state.articleLoader.stop();
     state.imgViewLoader.stop();
     state.imgViewCache.resetForArticle({});
