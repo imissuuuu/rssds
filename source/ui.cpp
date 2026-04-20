@@ -1104,7 +1104,7 @@ void uiHandleInput(AppState& state, u32 kDown, u32 kHeld, u32 kRepeat) {
                 state.viewingBookmark            = true;
                 state.pendingFetchFeed           = -2;
                 state.pendingFetchArticle        = -2;
-                state.pendingFetchFullArticle    = false;
+                state.pendingFetchFullArticle    = true;
                 state.pendingReturnScreen        = Screen::BookmarkList;
                 state.cachedLineContentSize      = 0;
                 state.cachedImagesArticle        = -1;
