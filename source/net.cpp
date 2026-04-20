@@ -155,6 +155,7 @@ static int curlXferCb(void* ud, curl_off_t dltotal, curl_off_t dlnow,
     return w->fn(w->ud, (int64_t)dltotal, (int64_t)dlnow);
 }
 
+
 std::string httpGet(const std::string& url, std::string& errMsg,
                     XferInfoFn progressFn, void* progressUd) {
     CURL* curl = curl_easy_init();

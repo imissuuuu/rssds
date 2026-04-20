@@ -371,13 +371,19 @@ static void drawLoadingScreen(const AppState& state) {
         drawText(state.statusMsg.c_str(), TEXT_MARGIN_X,
                  TOP_H / 2.0f + 4.0f + STATUSBAR_H / 2.0f, 0.5f, TEXT_SCALE, TEXT_SCALE, CLR_HINT);
     }
-    if (state.currentScreen == Screen::LoadingArticle) {
+    float pct = 0.0f;
+    if (state.currentScreen == Screen::LoadingArticle)
+        pct = state.articleLoader.getProgress();
+    else if (state.currentScreen == Screen::Loading)
+        pct = state.feedLoader.getProgress();
+
+    if (state.currentScreen == Screen::LoadingArticle
+     || state.currentScreen == Screen::Loading) {
         constexpr float BAR_H = 10.0f;
         constexpr float BAR_W = TOP_W - TEXT_MARGIN_X * 2.0f;
         float barY = TOP_H / 2.0f + 20.0f + STATUSBAR_H / 2.0f;
         C2D_DrawRectSolid(TEXT_MARGIN_X, barY, 0.5f, BAR_W, BAR_H,
                           C2D_Color32(0x40, 0x40, 0x60, 0xFF));
-        float pct = state.articleLoader.getProgress();
         if (pct > 0.0f)
             C2D_DrawRectSolid(TEXT_MARGIN_X, barY, 0.5f, BAR_W * pct, BAR_H, CLR_TITLE);
         char pctBuf[20];
@@ -761,8 +767,11 @@ void uiHandleInput(AppState& state, u32 kDown, u32 kHeld, u32 kRepeat) {
                     // 実フィードを開く
                     const FeedConfig& cfg = state.feedConfigs[state.selectedFeed];
                     state.statusMsg       = cfg.name.empty() ? cfg.url : cfg.name;
-                    state.currentScreen   = Screen::Loading;
                     state.selectedArticle = 0;
+                    if (!state.feedLoaded[state.selectedFeed]) {
+                        state.feedLoader.submit(cfg.url);
+                    }
+                    state.currentScreen = Screen::Loading;
                 }
                 kDown &= ~KEY_A;  // coding-patterns #6
             }

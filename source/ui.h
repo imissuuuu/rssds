@@ -5,6 +5,7 @@
 #include "image_loader.h"
 #include "image_cache.h"
 #include "article_loader.h"
+#include "feed_loader.h"
 #include <3ds.h>
 #include <vector>
 #include <string>
@@ -67,6 +68,9 @@ struct AppState {
     int  pendingFetchArticle     = -1;
     bool pendingFetchFullArticle = false;
     Screen pendingReturnScreen   = Screen::ArticleList;
+
+    // フィード非同期ロード
+    mutable FeedLoader feedLoader;
 };
 
 void uiInit();
