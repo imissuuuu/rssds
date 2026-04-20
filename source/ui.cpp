@@ -473,7 +473,11 @@ static void drawArticleList(const AppState& state) {
             C2D_DrawRectSolid(0, y - 1.0f, 0.0f, BOT_W, LINE_HEIGHT + 1.0f, CLR_SEL_BG);
         }
 
-        const std::string& fullTitle = feed.articles[i].title;
+        const Article& article   = feed.articles[i];
+        const std::string& fullTitle = article.title;
+        bool isRead = state.readHistory.isRead(
+            ReadHistory::keyFor(article.link, article.title));
+        u32 textClr = isRead ? CLR_HINT : CLR_TEXT;
 
         if (i == state.selectedArticle) {
             // 選択行: 生タイトルを描画し、水平スクロールを適用。
@@ -484,12 +488,12 @@ static void drawArticleList(const AppState& state) {
             float effScroll = (float)state.articleListScrollX;
             if (effScroll > maxScroll) effScroll = maxScroll;
             drawText(fullTitle.c_str(), TEXT_MARGIN_X - effScroll, y, 0.5f,
-                     TEXT_SCALE, TEXT_SCALE, CLR_TEXT);
+                     TEXT_SCALE, TEXT_SCALE, textClr);
         } else {
-            // 非選択行: 先頭の1行のみを表示（現状維持）
+            // 非選択行: 先頭の1行のみを表示
             auto lw = wrapText(fullTitle, BOT_WRAP_PX);
             std::string label = lw.empty() ? "" : lw.front();
-            drawText(label.c_str(), TEXT_MARGIN_X, y, 0.5f, TEXT_SCALE, TEXT_SCALE, CLR_TEXT);
+            drawText(label.c_str(), TEXT_MARGIN_X, y, 0.5f, TEXT_SCALE, TEXT_SCALE, textClr);
         }
     }
 
@@ -825,6 +829,7 @@ void uiHandleInput(AppState& state, u32 kDown, u32 kHeld, u32 kRepeat) {
             if ((kDown & KEY_A) && total > 0) {
                 kDown &= ~KEY_A;  // coding-patterns #6
                 Article& art = state.feeds[idx].articles[state.selectedArticle];
+                state.readHistory.markRead(ReadHistory::keyFor(art.link, art.title));
                 if ((int)art.content.size() < CONTENT_SHORT_THRESHOLD
                     && !art.link.empty()) {
                     state.pendingFetchFeed        = idx;

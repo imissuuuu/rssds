@@ -6,6 +6,7 @@
 #include "image_cache.h"
 #include "article_loader.h"
 #include "feed_loader.h"
+#include "read_history.h"
 #include <3ds.h>
 #include <vector>
 #include <string>
@@ -72,6 +73,9 @@ struct AppState {
     // フィード非同期ロード
     mutable FeedLoader feedLoader;
     bool feedJobSubmitted = false;
+
+    // 既読管理
+    ReadHistory readHistory;
 };
 
 void uiInit();
