@@ -103,6 +103,7 @@ int main() {
 
     settingsLoad(state.settings);
     state.readHistory.load();
+    state.bookmarkStore.load();
     state.imgViewLoader.setMaxDim(1024);
     state.articleLoader.start();
     state.feedLoader.start();
