@@ -635,26 +635,33 @@ static void drawArticleView(const AppState& state) {
                        TextStyle::Heading);
     }
 
-    char scrollInfo[32];
-    int displayScroll = scroll < totalDisplayLines ? scroll + 1 : totalDisplayLines;
-    snprintf(scrollInfo, sizeof(scrollInfo), "Line %d / %d",
-             displayScroll, totalDisplayLines);
-    drawText(scrollInfo, TEXT_MARGIN_X, BOT_H - 30.0f, 0.5f,
-             TEXT_SCALE, TEXT_SCALE, CLR_HINT);
+    if (!state.statusMsg.empty()) {
+        drawText(state.statusMsg.c_str(), TEXT_MARGIN_X, BOT_H - 30.0f, 0.5f,
+                 TEXT_SCALE, TEXT_SCALE, CLR_HINT);
+    } else {
+        char scrollInfo[32];
+        int displayScroll = scroll < totalDisplayLines ? scroll + 1 : totalDisplayLines;
+        snprintf(scrollInfo, sizeof(scrollInfo), "Line %d / %d",
+                 displayScroll, totalDisplayLines);
+        drawText(scrollInfo, TEXT_MARGIN_X, BOT_H - 30.0f, 0.5f,
+                 TEXT_SCALE, TEXT_SCALE, CLR_HINT);
+    }
 
+    bool isBookmarked = state.bookmarkStore.isBookmarked(art.link, art.title);
+    const char* bmMark = isBookmarked ? "\xe2\x98\x85" : "\xe2\x98\x86";
     bool hasReadyImg = false;
     for (const auto& cl : lines) {
         if (cl.kind != LineKind::Image) continue;
         const CachedImage* ci = state.imgCache.get(cl.imageUrl);
         if (ci && ci->state == ImgState::Ready) { hasReadyImg = true; break; }
     }
-    const char* guide;
+    char guide[64];
     if (!art.fullFetched && !art.link.empty())
-        guide = "Up/Down:scroll  A:full article  B:back";
+        snprintf(guide, sizeof(guide), "Up/Down:scroll  A:full  SEL:%s  B:back", bmMark);
     else if (hasReadyImg)
-        guide = "Up/Down:scroll  A:image  B:back";
+        snprintf(guide, sizeof(guide), "Up/Down:scroll  A:img  SEL:%s  B:back", bmMark);
     else
-        guide = "Up/Down:scroll  B:back";
+        snprintf(guide, sizeof(guide), "Up/Down:scroll  SEL:%s  B:back", bmMark);
     drawText(guide, TEXT_MARGIN_X, BOT_H - 16.0f, 0.5f, 0.42f, 0.42f, CLR_HINT);
 }
 
