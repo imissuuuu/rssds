@@ -4,11 +4,12 @@
 #include "settings.h"
 #include "image_loader.h"
 #include "image_cache.h"
+#include "article_loader.h"
 #include <3ds.h>
 #include <vector>
 #include <string>
 
-enum class Screen { FeedList, Loading, LoadingAll, ArticleList, ArticleView, ImageView, Settings };
+enum class Screen { FeedList, Loading, LoadingAll, ArticleList, ArticleView, ImageView, Settings, LoadingArticle };
 
 enum class LineKind : uint8_t { Text, Image };
 
@@ -59,6 +60,13 @@ struct AppState {
     // 高解像度ローダー (1024px, ImageView 専用)
     mutable ImageLoader imgViewLoader;
     mutable ImageCache  imgViewCache;
+
+    // 記事本文非同期ロード
+    mutable ArticleLoader articleLoader;
+    int  pendingFetchFeed        = -1;
+    int  pendingFetchArticle     = -1;
+    bool pendingFetchFullArticle = false;
+    Screen pendingReturnScreen   = Screen::ArticleList;
 };
 
 void uiInit();
