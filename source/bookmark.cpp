@@ -29,13 +29,27 @@ void BookmarkStore::toggle(const std::string& title, const std::string& link,
     save();
 }
 
-// JSON エスケープ（" と \ のみ）
 static std::string esc(const std::string& s) {
     std::string out;
     out.reserve(s.size());
-    for (char c : s) {
-        if (c == '"' || c == '\\') out += '\\';
-        out += c;
+    char buf[8];
+    for (unsigned char c : s) {
+        switch (c) {
+            case '"':  out += "\\\""; break;
+            case '\\': out += "\\\\"; break;
+            case '\b': out += "\\b";  break;
+            case '\f': out += "\\f";  break;
+            case '\n': out += "\\n";  break;
+            case '\r': out += "\\r";  break;
+            case '\t': out += "\\t";  break;
+            default:
+                if (c < 0x20) {
+                    snprintf(buf, sizeof(buf), "\\u%04x", c);
+                    out += buf;
+                } else {
+                    out += (char)c;
+                }
+        }
     }
     return out;
 }
@@ -71,8 +85,9 @@ void BookmarkStore::load() {
     if (sz <= 0 || sz > 512 * 1024) { fclose(f); return; }
 
     std::string buf(sz, '\0');
-    fread(&buf[0], 1, sz, f);
+    size_t n = fread(&buf[0], 1, sz, f);
     fclose(f);
+    if (n < (size_t)sz) buf.resize(n);
 
     // "bookmarks":[{...},{...}] を手動パース
     const char* arr = strstr(buf.c_str(), "\"bookmarks\"");
