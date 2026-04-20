@@ -102,6 +102,7 @@ int main() {
     state.feedLoaded.resize(state.feedConfigs.size(), false);
 
     settingsLoad(state.settings);
+    state.readHistory.load();
     state.imgViewLoader.setMaxDim(1024);
     state.articleLoader.start();
     state.feedLoader.start();
