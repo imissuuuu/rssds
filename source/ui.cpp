@@ -415,7 +415,7 @@ static void drawFeedList(const AppState& state) {
     C2D_SceneBegin(botTarget);
 
     int feedCount = (int)state.feedConfigs.size();
-    int total     = feedCount + 1;  // +1 for Settings entry
+    int total     = feedCount + 2;  // +1 for Bookmarks, +1 for Settings
     int start = state.selectedFeed - BOT_MAX_LINES / 2;
     if (start < 0) start = 0;
     if (start > total - BOT_MAX_LINES && total > BOT_MAX_LINES)
@@ -429,6 +429,8 @@ static void drawFeedList(const AppState& state) {
         }
         if (i < feedCount)
             snprintf(label, sizeof(label), "%s", state.feedConfigs[i].name.c_str());
+        else if (i == feedCount)
+            snprintf(label, sizeof(label), "\xe2\x98\x85 Bookmarks");
         else
             snprintf(label, sizeof(label), "[Settings]");
         drawText(label, TEXT_MARGIN_X, y, 0.5f, TEXT_SCALE, TEXT_SCALE, CLR_TEXT);
@@ -477,21 +479,26 @@ static void drawArticleList(const AppState& state) {
         const std::string& fullTitle = article.title;
         bool isRead = state.readHistory.isRead(
             ReadHistory::keyFor(article.link, article.title));
+        bool isBm = state.bookmarkStore.isBookmarked(article.link, article.title);
         u32 textClr = isRead ? CLR_HINT : CLR_TEXT;
+        // ★ プレフィックス（ブックマーク済み）
+        std::string displayTitle = isBm
+            ? std::string("\xe2\x98\x85 ") + fullTitle
+            : fullTitle;
 
         if (i == state.selectedArticle) {
             // 選択行: 生タイトルを描画し、水平スクロールを適用。
             // タイトル末尾が右端に到達したところで止まる（タイトル全体が見える）。
-            float textW    = measureStr(fullTitle.c_str(), TEXT_SCALE);
+            float textW    = measureStr(displayTitle.c_str(), TEXT_SCALE);
             float displayW = (float)BOT_WRAP_PX;
             float maxScroll = (textW > displayW) ? (textW - displayW) : 0.0f;
             float effScroll = (float)state.articleListScrollX;
             if (effScroll > maxScroll) effScroll = maxScroll;
-            drawText(fullTitle.c_str(), TEXT_MARGIN_X - effScroll, y, 0.5f,
+            drawText(displayTitle.c_str(), TEXT_MARGIN_X - effScroll, y, 0.5f,
                      TEXT_SCALE, TEXT_SCALE, textClr);
         } else {
             // 非選択行: 先頭の1行のみを表示
-            auto lw = wrapText(fullTitle, BOT_WRAP_PX);
+            auto lw = wrapText(displayTitle, BOT_WRAP_PX);
             std::string label = lw.empty() ? "" : lw.front();
             drawText(label.c_str(), TEXT_MARGIN_X, y, 0.5f, TEXT_SCALE, TEXT_SCALE, textClr);
         }
@@ -698,6 +705,54 @@ static void drawImageView(const AppState& state) {
              TEXT_MARGIN_X, BOT_H - 16.0f, 0.5f, 0.42f, 0.42f, CLR_HINT);
 }
 
+static void drawBookmarkList(const AppState& state) {
+    const auto& bms = state.bookmarkStore.getAll();
+
+    C2D_TargetClear(topTarget, CLR_BG);
+    C2D_SceneBegin(topTarget);
+    drawStatusBar();
+    drawStyledText("\xe2\x98\x85 Bookmarks", TEXT_MARGIN_X, TOP_CONTENT_Y, 0.5f,
+                   TextStyle::Heading);
+
+    if (!bms.empty() && state.selectedBookmark < (int)bms.size()) {
+        const Bookmark& bm = bms[state.selectedBookmark];
+        drawText(bm.feedTitle.c_str(), TEXT_MARGIN_X, 40.0f + STATUSBAR_H, 0.5f,
+                 TEXT_SCALE, TEXT_SCALE, CLR_HINT);
+        auto wrapped = wrapText(bm.title, TOP_W - (int)(TEXT_MARGIN_X * 2));
+        float ty = 55.0f + STATUSBAR_H;
+        for (const auto& line : wrapped) {
+            drawText(line.c_str(), TEXT_MARGIN_X, ty, 0.5f, TEXT_SCALE, TEXT_SCALE, CLR_TEXT);
+            ty += LINE_HEIGHT;
+        }
+    }
+
+    C2D_TargetClear(botTarget, CLR_PANEL);
+    C2D_SceneBegin(botTarget);
+
+    int total = (int)bms.size();
+    if (total == 0) {
+        drawText("No bookmarks yet.", TEXT_MARGIN_X, TEXT_MARGIN_Y, 0.5f,
+                 TEXT_SCALE, TEXT_SCALE, CLR_HINT);
+    } else {
+        int start = state.selectedBookmark - BOT_MAX_LINES / 2;
+        if (start < 0) start = 0;
+        if (start > total - BOT_MAX_LINES && total > BOT_MAX_LINES)
+            start = total - BOT_MAX_LINES;
+
+        for (int i = start; i < total && (i - start) < BOT_MAX_LINES; ++i) {
+            float y = TEXT_MARGIN_Y + (float)(i - start) * LINE_HEIGHT;
+            if (i == state.selectedBookmark)
+                C2D_DrawRectSolid(0, y - 1.0f, 0.0f, BOT_W, LINE_HEIGHT + 1.0f, CLR_SEL_BG);
+            auto lw = wrapText(bms[i].title, BOT_WRAP_PX);
+            std::string label = lw.empty() ? "" : lw.front();
+            drawText(label.c_str(), TEXT_MARGIN_X, y, 0.5f, TEXT_SCALE, TEXT_SCALE, CLR_TEXT);
+        }
+    }
+
+    drawText("Up/Down:move  B:back", TEXT_MARGIN_X, BOT_H - 16.0f,
+             0.5f, 0.42f, 0.42f, CLR_HINT);
+}
+
 static void drawSettings(const AppState& state) {
     // 上画面: タイトル
     C2D_TargetClear(topTarget, CLR_BG);
@@ -747,6 +802,7 @@ void uiDraw(const AppState& state) {
         case Screen::ArticleView: drawArticleView(state);   break;
         case Screen::ImageView:   drawImageView(state);     break;
         case Screen::Settings:    drawSettings(state);      break;
+        case Screen::BookmarkList: drawBookmarkList(state); break;
     }
 }
 
@@ -757,16 +813,20 @@ void uiHandleInput(AppState& state, u32 kDown, u32 kHeld, u32 kRepeat) {
     switch (state.currentScreen) {
         case Screen::FeedList: {
             int feedCount = (int)state.feedConfigs.size();
-            int total     = feedCount + 1;  // +1 for Settings entry
+            int total     = feedCount + 2;  // +1 for Bookmarks, +1 for Settings
             if ((kRepeat & KEY_DOWN) && state.selectedFeed < total - 1)
                 ++state.selectedFeed;
             if ((kRepeat & KEY_UP) && state.selectedFeed > 0)
                 --state.selectedFeed;
             if ((kDown & KEY_A) && total > 0) {
-                if (state.selectedFeed == feedCount) {
+                if (state.selectedFeed == feedCount + 1) {
                     // Settings エントリ
                     state.currentScreen       = Screen::Settings;
                     state.settingsSelectedItem = 0;
+                } else if (state.selectedFeed == feedCount) {
+                    // Bookmarks エントリ
+                    state.selectedBookmark = 0;
+                    state.currentScreen    = Screen::BookmarkList;
                 } else {
                     // 実フィードを開く
                     const FeedConfig& cfg = state.feedConfigs[state.selectedFeed];
@@ -948,9 +1008,33 @@ void uiHandleInput(AppState& state, u32 kDown, u32 kHeld, u32 kRepeat) {
                 }
                 kDown &= ~KEY_A;
             }
+            if (kDown & KEY_SELECT) {
+                Article& art = state.feeds[state.selectedFeed]
+                                    .articles[state.selectedArticle];
+                const Feed& feed = state.feeds[state.selectedFeed];
+                const std::string& feedTitle = feed.title.empty()
+                    ? state.feedConfigs[state.selectedFeed].name
+                    : feed.title;
+                state.bookmarkStore.toggle(art.title, art.link, feedTitle);
+                bool nowBm = state.bookmarkStore.isBookmarked(art.link, art.title);
+                state.statusMsg = nowBm ? "Bookmarked!" : "Bookmark removed.";
+                kDown &= ~KEY_SELECT;
+            }
             if (kDown & KEY_B) {
                 state.currentScreen = Screen::ArticleList;
                 state.statusMsg     = "";
+                kDown &= ~KEY_B;
+            }
+            break;
+        }
+        case Screen::BookmarkList: {
+            int total = (int)state.bookmarkStore.getAll().size();
+            if ((kRepeat & KEY_DOWN) && state.selectedBookmark < total - 1)
+                ++state.selectedBookmark;
+            if ((kRepeat & KEY_UP) && state.selectedBookmark > 0)
+                --state.selectedBookmark;
+            if (kDown & KEY_B) {
+                state.currentScreen = Screen::FeedList;
                 kDown &= ~KEY_B;
             }
             break;

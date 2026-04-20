@@ -7,11 +7,12 @@
 #include "article_loader.h"
 #include "feed_loader.h"
 #include "read_history.h"
+#include "bookmark.h"
 #include <3ds.h>
 #include <vector>
 #include <string>
 
-enum class Screen { FeedList, Loading, LoadingAll, ArticleList, ArticleView, ImageView, Settings, LoadingArticle };
+enum class Screen { FeedList, Loading, LoadingAll, ArticleList, ArticleView, ImageView, Settings, LoadingArticle, BookmarkList };
 
 enum class LineKind : uint8_t { Text, Image };
 
@@ -76,6 +77,10 @@ struct AppState {
 
     // 既読管理
     ReadHistory readHistory;
+
+    // ブックマーク
+    BookmarkStore bookmarkStore;
+    int selectedBookmark = 0;
 };
 
 void uiInit();
