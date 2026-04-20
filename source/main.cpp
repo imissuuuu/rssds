@@ -134,13 +134,21 @@ int main() {
             std::string errMsg;
             if (state.articleLoader.poll(result, errMsg)) {
                 if (!result.body.empty()) {
-                    auto& art = state.feeds[state.pendingFetchFeed]
-                                      .articles[state.pendingFetchArticle];
-                    art.content   = std::move(result.body);
-                    art.imageUrls = std::move(result.imageUrls);
-                    if (state.pendingFetchFullArticle) art.fullFetched = true;
-                    state.selectedFeed    = state.pendingFetchFeed;
-                    state.selectedArticle = state.pendingFetchArticle;
+                    if (state.pendingFetchFeed == -2) {
+                        // ブックマーク一覧から開いた一時記事
+                        state.bookmarkTempArticle.content   = std::move(result.body);
+                        state.bookmarkTempArticle.imageUrls = std::move(result.imageUrls);
+                        if (state.pendingFetchFullArticle) state.bookmarkTempArticle.fullFetched = true;
+                        state.viewingBookmark       = true;
+                    } else {
+                        auto& art = state.feeds[state.pendingFetchFeed]
+                                          .articles[state.pendingFetchArticle];
+                        art.content   = std::move(result.body);
+                        art.imageUrls = std::move(result.imageUrls);
+                        if (state.pendingFetchFullArticle) art.fullFetched = true;
+                        state.selectedFeed    = state.pendingFetchFeed;
+                        state.selectedArticle = state.pendingFetchArticle;
+                    }
                     state.cachedLineContentSize = 0;  // 本文行キャッシュを強制無効化
                     state.cachedImagesArticle = -1;  // 画像キャッシュ再初期化
                     state.scrollY         = 0;

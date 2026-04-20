@@ -81,6 +81,12 @@ struct AppState {
     // ブックマーク
     BookmarkStore bookmarkStore;
     int selectedBookmark = 0;
+
+    // ブックマーク一覧から開く記事の一時保持
+    Article bookmarkTempArticle;
+    std::string bookmarkTempFeedTitle;
+    bool viewingBookmark = false;
+    bool bookmarkConfirmRemove = false;
 };
 
 void uiInit();

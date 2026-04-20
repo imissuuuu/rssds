@@ -458,6 +458,10 @@ static void drawArticleList(const AppState& state) {
         : feed.title;
     drawStyledText(title.c_str(), TEXT_MARGIN_X, TOP_CONTENT_Y, 0.5f,
                    TextStyle::Heading);
+    if (!state.statusMsg.empty()) {
+        drawText(state.statusMsg.c_str(), TEXT_MARGIN_X, 40.0f + STATUSBAR_H, 0.5f,
+                 TEXT_SCALE, TEXT_SCALE, CLR_HINT);
+    }
 
     // 下画面: 記事一覧
     C2D_TargetClear(botTarget, CLR_PANEL);
@@ -509,7 +513,7 @@ static void drawArticleList(const AppState& state) {
                  TEXT_SCALE, TEXT_SCALE, CLR_HINT);
     }
 
-    drawText("Up/Down:move  A:read  Y:refresh  B:back", TEXT_MARGIN_X, BOT_H - 16.0f,
+    drawText("A:read  SEL:bm  Y:refresh  B:back", TEXT_MARGIN_X, BOT_H - 16.0f,
              0.5f, 0.42f, 0.42f, CLR_HINT);
 }
 
@@ -527,18 +531,22 @@ static void drawArticleList(const AppState& state) {
  * - Calls state.imgCache.tick(...) with the set of visible image URLs.
  */
 static void drawArticleView(const AppState& state) {
-    const Article& art =
-        state.feeds[state.selectedFeed].articles[state.selectedArticle];
+    const Article& art = state.viewingBookmark
+        ? state.bookmarkTempArticle
+        : state.feeds[state.selectedFeed].articles[state.selectedArticle];
+
+    int cacheFeedKey    = state.viewingBookmark ? -2 : state.selectedFeed;
+    int cacheArticleKey = state.viewingBookmark ? -2 : state.selectedArticle;
 
     // キャッシュが無効なら再計算（フィード・記事・本文サイズのいずれかが変わった場合）
-    if (state.cachedLineFeed    != state.selectedFeed
-     || state.cachedLineArticle != state.selectedArticle
+    if (state.cachedLineFeed    != cacheFeedKey
+     || state.cachedLineArticle != cacheArticleKey
      || state.cachedLineContentSize != art.content.size()) {
         // stripHtml で HTML を除去しつつ \x01URL\x01 マーカーはそのまま通過させる
         std::string processed = stripHtml(art.content);
         state.articleLines          = parseContentLines(processed, TOP_WRAP_PX);
-        state.cachedLineFeed        = state.selectedFeed;
-        state.cachedLineArticle     = state.selectedArticle;
+        state.cachedLineFeed        = cacheFeedKey;
+        state.cachedLineArticle     = cacheArticleKey;
         state.cachedLineContentSize = art.content.size();
 
         // ContentLines から inline 画像 URL を収集して imgCache を初期化
@@ -756,8 +764,17 @@ static void drawBookmarkList(const AppState& state) {
         }
     }
 
-    drawText("Up/Down:move  B:back", TEXT_MARGIN_X, BOT_H - 16.0f,
-             0.5f, 0.42f, 0.42f, CLR_HINT);
+    if (state.bookmarkConfirmRemove) {
+        constexpr float DLG_X = 30.0f, DLG_Y = 80.0f, DLG_W = BOT_W - 60.0f, DLG_H = 54.0f;
+        C2D_DrawRectSolid(DLG_X, DLG_Y, 0.1f, DLG_W, DLG_H, CLR_SEL_BG);
+        drawText("Remove bookmark?", DLG_X + 8.0f, DLG_Y + 8.0f, 0.1f,
+                 TEXT_SCALE, TEXT_SCALE, CLR_TEXT);
+        drawText("A:Yes  B:Cancel", DLG_X + 8.0f, DLG_Y + 28.0f, 0.1f,
+                 TEXT_SCALE, TEXT_SCALE, CLR_HINT);
+    } else {
+        drawText("A:open  SEL:remove  B:back", TEXT_MARGIN_X, BOT_H - 16.0f,
+                 0.5f, 0.42f, 0.42f, CLR_HINT);
+    }
 }
 
 static void drawSettings(const AppState& state) {
@@ -911,6 +928,16 @@ void uiHandleInput(AppState& state, u32 kDown, u32 kHeld, u32 kRepeat) {
                     state.scrollY       = 0;
                 }
             }
+            if ((kDown & KEY_SELECT) && total > 0) {
+                Article& art = state.feeds[idx].articles[state.selectedArticle];
+                const Feed& feed = state.feeds[idx];
+                const std::string& feedTitle = feed.title.empty()
+                    ? state.feedConfigs[idx].name : feed.title;
+                state.bookmarkStore.toggle(art.title, art.link, feedTitle);
+                bool nowBm = state.bookmarkStore.isBookmarked(art.link, art.title);
+                state.statusMsg = nowBm ? "Bookmarked!" : "Bookmark removed.";
+                kDown &= ~KEY_SELECT;
+            }
             if (kDown & KEY_Y) {
                 state.feedLoaded[idx] = false;
                 const FeedConfig& cfg = state.feedConfigs[idx];
@@ -922,6 +949,7 @@ void uiHandleInput(AppState& state, u32 kDown, u32 kHeld, u32 kRepeat) {
             if (kDown & KEY_B) {
                 state.currentScreen      = Screen::FeedList;
                 state.articleListScrollX = 0;
+                state.statusMsg          = "";
                 kDown &= ~KEY_B;
             }
             break;
@@ -966,11 +994,12 @@ void uiHandleInput(AppState& state, u32 kDown, u32 kHeld, u32 kRepeat) {
             if ((kRepeat & KEY_DOWN) && state.scrollY < state.cachedMaxScroll) ++state.scrollY;
             if ((kRepeat & KEY_UP) && state.scrollY > 0) --state.scrollY;
             if ((kDown & KEY_A)) {
-                Article& art = state.feeds[state.selectedFeed]
-                                    .articles[state.selectedArticle];
+                Article& art = state.viewingBookmark
+                    ? state.bookmarkTempArticle
+                    : state.feeds[state.selectedFeed].articles[state.selectedArticle];
                 if (!art.fullFetched && !art.link.empty()) {
-                    state.pendingFetchFeed        = state.selectedFeed;
-                    state.pendingFetchArticle     = state.selectedArticle;
+                    state.pendingFetchFeed        = state.viewingBookmark ? -2 : state.selectedFeed;
+                    state.pendingFetchArticle     = state.viewingBookmark ? -2 : state.selectedArticle;
                     state.pendingFetchFullArticle = true;
                     state.pendingReturnScreen     = Screen::ArticleView;
                     state.statusMsg               = "Downloading full article...";
@@ -1016,30 +1045,79 @@ void uiHandleInput(AppState& state, u32 kDown, u32 kHeld, u32 kRepeat) {
                 kDown &= ~KEY_A;
             }
             if (kDown & KEY_SELECT) {
-                Article& art = state.feeds[state.selectedFeed]
-                                    .articles[state.selectedArticle];
-                const Feed& feed = state.feeds[state.selectedFeed];
-                const std::string& feedTitle = feed.title.empty()
-                    ? state.feedConfigs[state.selectedFeed].name
-                    : feed.title;
-                state.bookmarkStore.toggle(art.title, art.link, feedTitle);
-                bool nowBm = state.bookmarkStore.isBookmarked(art.link, art.title);
+                std::string artTitle, artLink, feedTitle;
+                if (state.viewingBookmark) {
+                    artTitle   = state.bookmarkTempArticle.title;
+                    artLink    = state.bookmarkTempArticle.link;
+                    feedTitle  = state.bookmarkTempFeedTitle;
+                } else {
+                    Article& art = state.feeds[state.selectedFeed].articles[state.selectedArticle];
+                    const Feed& feed = state.feeds[state.selectedFeed];
+                    artTitle  = art.title;
+                    artLink   = art.link;
+                    feedTitle = feed.title.empty()
+                        ? state.feedConfigs[state.selectedFeed].name : feed.title;
+                }
+                state.bookmarkStore.toggle(artTitle, artLink, feedTitle);
+                bool nowBm = state.bookmarkStore.isBookmarked(artLink, artTitle);
                 state.statusMsg = nowBm ? "Bookmarked!" : "Bookmark removed.";
                 kDown &= ~KEY_SELECT;
             }
             if (kDown & KEY_B) {
-                state.currentScreen = Screen::ArticleList;
-                state.statusMsg     = "";
+                state.currentScreen = state.viewingBookmark ? Screen::BookmarkList : Screen::ArticleList;
+                state.viewingBookmark = false;
+                state.statusMsg = "";
                 kDown &= ~KEY_B;
             }
             break;
         }
         case Screen::BookmarkList: {
             int total = (int)state.bookmarkStore.getAll().size();
+            if (state.bookmarkConfirmRemove) {
+                if (kDown & KEY_A) {
+                    if (total > 0 && state.selectedBookmark < total) {
+                        const Bookmark& bm = state.bookmarkStore.getAll()[state.selectedBookmark];
+                        state.bookmarkStore.toggle(bm.title, bm.link, bm.feedTitle);
+                        int newTotal = (int)state.bookmarkStore.getAll().size();
+                        if (state.selectedBookmark >= newTotal && newTotal > 0)
+                            state.selectedBookmark = newTotal - 1;
+                    }
+                    state.bookmarkConfirmRemove = false;
+                    kDown &= ~KEY_A;
+                }
+                if (kDown & KEY_B) {
+                    state.bookmarkConfirmRemove = false;
+                    kDown &= ~KEY_B;
+                }
+                break;
+            }
             if ((kRepeat & KEY_DOWN) && state.selectedBookmark < total - 1)
                 ++state.selectedBookmark;
             if ((kRepeat & KEY_UP) && state.selectedBookmark > 0)
                 --state.selectedBookmark;
+            if ((kDown & KEY_A) && total > 0) {
+                const Bookmark& bm = state.bookmarkStore.getAll()[state.selectedBookmark];
+                state.bookmarkTempArticle        = Article{};
+                state.bookmarkTempArticle.title  = bm.title;
+                state.bookmarkTempArticle.link   = bm.link;
+                state.bookmarkTempFeedTitle      = bm.feedTitle;
+                state.viewingBookmark            = true;
+                state.pendingFetchFeed           = -2;
+                state.pendingFetchArticle        = -2;
+                state.pendingFetchFullArticle    = false;
+                state.pendingReturnScreen        = Screen::BookmarkList;
+                state.cachedLineContentSize      = 0;
+                state.cachedImagesArticle        = -1;
+                state.scrollY                    = 0;
+                state.statusMsg                  = "Loading article...";
+                state.articleLoader.submit(bm.link);
+                state.currentScreen = Screen::LoadingArticle;
+                kDown &= ~KEY_A;
+            }
+            if ((kDown & KEY_SELECT) && total > 0) {
+                state.bookmarkConfirmRemove = true;
+                kDown &= ~KEY_SELECT;
+            }
             if (kDown & KEY_B) {
                 state.currentScreen = Screen::FeedList;
                 kDown &= ~KEY_B;
