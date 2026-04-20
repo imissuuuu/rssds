@@ -71,6 +71,7 @@ struct AppState {
 
     // フィード非同期ロード
     mutable FeedLoader feedLoader;
+    bool feedJobSubmitted = false;
 };
 
 void uiInit();

@@ -199,13 +199,17 @@ int main() {
                 state.statusMsg     = "Network unavailable.";
                 state.currentScreen = Screen::FeedList;
             } else {
+                if (!state.feedJobSubmitted) {
+                    state.feedLoader.submit(state.feedConfigs[idx].url);
+                    state.feedJobSubmitted = true;
+                }
                 FetchedFeed result;
                 if (state.feedLoader.poll(result)) {
                     if (result.errMsg.empty()) {
-                        state.feeds[idx]    = std::move(result.feed);
+                        state.feeds[idx]      = std::move(result.feed);
                         state.feedLoaded[idx] = true;
-                        state.statusMsg     = "";
-                        state.currentScreen = Screen::ArticleList;
+                        state.statusMsg       = "";
+                        state.currentScreen   = Screen::ArticleList;
                     } else {
                         state.statusMsg     = std::string("Fetch failed: ") + result.errMsg;
                         state.currentScreen = Screen::FeedList;

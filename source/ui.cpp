@@ -768,10 +768,8 @@ void uiHandleInput(AppState& state, u32 kDown, u32 kHeld, u32 kRepeat) {
                     const FeedConfig& cfg = state.feedConfigs[state.selectedFeed];
                     state.statusMsg       = cfg.name.empty() ? cfg.url : cfg.name;
                     state.selectedArticle = 0;
-                    if (!state.feedLoaded[state.selectedFeed]) {
-                        state.feedLoader.submit(cfg.url);
-                    }
-                    state.currentScreen = Screen::Loading;
+                    state.feedJobSubmitted = false;
+                    state.currentScreen   = Screen::Loading;
                 }
                 kDown &= ~KEY_A;  // coding-patterns #6
             }
@@ -844,8 +842,9 @@ void uiHandleInput(AppState& state, u32 kDown, u32 kHeld, u32 kRepeat) {
             if (kDown & KEY_Y) {
                 state.feedLoaded[idx] = false;
                 const FeedConfig& cfg = state.feedConfigs[idx];
-                state.statusMsg = cfg.name.empty() ? cfg.url : cfg.name;
-                state.currentScreen = Screen::Loading;
+                state.statusMsg        = cfg.name.empty() ? cfg.url : cfg.name;
+                state.feedJobSubmitted = false;
+                state.currentScreen    = Screen::Loading;
                 kDown &= ~KEY_Y;
             }
             if (kDown & KEY_B) {
