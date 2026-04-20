@@ -138,6 +138,7 @@ int main() {
                     if (state.pendingFetchFullArticle) art.fullFetched = true;
                     state.selectedFeed    = state.pendingFetchFeed;
                     state.selectedArticle = state.pendingFetchArticle;
+                    state.cachedLineContentSize = 0;  // 本文行キャッシュを強制無効化
                     state.cachedImagesArticle = -1;  // 画像キャッシュ再初期化
                     state.scrollY         = 0;
                     state.statusMsg       = "";
