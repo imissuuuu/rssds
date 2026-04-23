@@ -558,8 +558,8 @@ static void drawArticleView(const AppState& state) {
         state.imgLoader.start();
         state.imgCache.attach(&state.imgLoader);
         state.imgCache.resetForArticle(inlineUrls);
-        state.cachedImagesFeed    = state.selectedFeed;
-        state.cachedImagesArticle = state.selectedArticle;
+        state.cachedImagesFeed    = cacheFeedKey;
+        state.cachedImagesArticle = cacheArticleKey;
     }
     const std::vector<ContentLine>& lines = state.articleLines;
 
@@ -1081,7 +1081,7 @@ void uiHandleInput(AppState& state, u32 kDown, u32 kHeld, u32 kRepeat) {
             if (state.bookmarkConfirmRemove) {
                 if (kDown & KEY_A) {
                     if (total > 0 && state.selectedBookmark < total) {
-                        const Bookmark& bm = state.bookmarkStore.getAll()[state.selectedBookmark];
+                        const Bookmark bm = state.bookmarkStore.getAll()[state.selectedBookmark];
                         state.bookmarkStore.toggle(bm.title, bm.link, bm.feedTitle);
                         int newTotal = (int)state.bookmarkStore.getAll().size();
                         if (state.selectedBookmark >= newTotal && newTotal > 0)
