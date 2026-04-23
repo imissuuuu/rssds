@@ -155,6 +155,7 @@ int main() {
                     state.statusMsg       = "";
                     state.currentScreen   = Screen::ArticleView;
                 } else {
+                    if (state.pendingFetchFeed == -2) state.viewingBookmark = false;
                     state.statusMsg     = std::string("Fetch failed: ") + errMsg;
                     state.currentScreen = state.pendingReturnScreen;
                 }

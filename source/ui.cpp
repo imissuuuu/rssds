@@ -1060,6 +1060,11 @@ void uiHandleInput(AppState& state, u32 kDown, u32 kHeld, u32 kRepeat) {
                 }
                 state.bookmarkStore.toggle(artTitle, artLink, feedTitle);
                 bool nowBm = state.bookmarkStore.isBookmarked(artLink, artTitle);
+                if (state.viewingBookmark && !nowBm) {
+                    int bmTotal = (int)state.bookmarkStore.getAll().size();
+                    if (state.selectedBookmark >= bmTotal)
+                        state.selectedBookmark = bmTotal > 0 ? bmTotal - 1 : 0;
+                }
                 state.statusMsg = nowBm ? "Bookmarked!" : "Bookmark removed.";
                 kDown &= ~KEY_SELECT;
             }
@@ -1101,7 +1106,6 @@ void uiHandleInput(AppState& state, u32 kDown, u32 kHeld, u32 kRepeat) {
                 state.bookmarkTempArticle.title  = bm.title;
                 state.bookmarkTempArticle.link   = bm.link;
                 state.bookmarkTempFeedTitle      = bm.feedTitle;
-                state.viewingBookmark            = true;
                 state.pendingFetchFeed           = -2;
                 state.pendingFetchArticle        = -2;
                 state.pendingFetchFullArticle    = true;
