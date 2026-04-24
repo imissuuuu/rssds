@@ -92,7 +92,7 @@ jobs:
         run: bear -- make -j$(nproc)
 
       - name: Strip ARM-specific flags
-        run: python3 .claude/scripts/strip_arm_flags.py
+        run: python3 tools/strip_arm_flags.py
 
       - name: Run clang-tidy
         run: |
