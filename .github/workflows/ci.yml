@@ -21,7 +21,7 @@ jobs:
 
       - name: Check formatting
         run: |
-          files=$(git ls-files '*.cpp' '*.c' '*.h' '*.hpp')
+          files=$(git ls-files 'source/*.cpp' 'source/*.h' 'source/*.c' 'include/*.h' 'include/*.hpp')
           if [ -n "$files" ]; then
             echo "$files" | xargs clang-format --dry-run --Werror -style=file
           fi
@@ -41,9 +41,6 @@ jobs:
 
       - name: Install cppcheck
         run: apt-get update && apt-get install -y cppcheck
-
-      - name: Mark pre-built assets as up-to-date
-        run: touch romfs/fallback.bcfnt
 
       - name: Build
         run: make -j$(nproc)
@@ -89,9 +86,6 @@ jobs:
 
       - name: Install tools
         run: apt-get update && apt-get install -y bear clang-tidy python3
-
-      - name: Mark pre-built assets as up-to-date
-        run: touch romfs/fallback.bcfnt
 
       - name: Generate compile_commands.json
         run: bear -- make -j$(nproc)

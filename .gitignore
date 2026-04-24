@@ -3,7 +3,6 @@
 *.elf
 *.smdh
 build/
-romfs/fallback.bcfnt
 
 # AI agent config (private)
 .claude/
