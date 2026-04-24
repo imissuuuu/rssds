@@ -42,8 +42,8 @@ jobs:
       - name: Install cppcheck
         run: apt-get update && apt-get install -y cppcheck
 
-      - name: Install 3DS tools
-        run: dkp-pacman -Sy --noconfirm 3dstools
+      - name: Mark pre-built assets as up-to-date
+        run: touch romfs/fallback.bcfnt
 
       - name: Build
         run: make -j$(nproc)
@@ -90,8 +90,8 @@ jobs:
       - name: Install tools
         run: apt-get update && apt-get install -y bear clang-tidy python3
 
-      - name: Install 3DS tools
-        run: dkp-pacman -Sy --noconfirm 3dstools
+      - name: Mark pre-built assets as up-to-date
+        run: touch romfs/fallback.bcfnt
 
       - name: Generate compile_commands.json
         run: bear -- make -j$(nproc)
