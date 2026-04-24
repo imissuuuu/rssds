@@ -64,6 +64,7 @@ jobs:
             --platform=unix32 \
             --suppress=missingIncludeSystem \
             --suppress=missingInclude \
+            --suppress=toomanyconfigs \
             -I /opt/devkitpro/libctru/include \
             -I /opt/devkitpro/portlibs/3ds/include \
             --error-exitcode=1 \
