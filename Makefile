@@ -29,9 +29,15 @@ APP_AUTHOR		:=
 #---------------------------------------------------------------------------------
 ARCH	:=	-march=armv6k -mtune=mpcore -mfloat-abi=hard -mtp=soft
 
-CFLAGS	:=	-g -Wall -O2 -mword-relocations \
+CFLAGS	:=	-g -Wall -Wextra -Wno-unused-parameter -Wno-sign-compare -Wno-maybe-uninitialized \
+			-O2 -mword-relocations \
 			-fomit-frame-pointer -ffunction-sections \
 			$(ARCH)
+
+# CI=true のとき警告をエラーに昇格（GitHub Actions が自動設定）
+ifdef CI
+CFLAGS	+=	-Werror
+endif
 
 CFLAGS	+=	$(INCLUDE) -D__3DS__
 
