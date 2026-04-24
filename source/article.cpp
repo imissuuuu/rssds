@@ -11,7 +11,3 @@ FetchedArticle fetchArticleBody2(const std::string& url, std::string& errMsg, Xf
     out.body = extractContent(html, url, nullptr, nullptr, &out.imageUrls);
     return out;
 }
-
-std::string fetchArticleBody(const std::string& url, std::string& errMsg) {
-    return fetchArticleBody2(url, errMsg).body;
-}

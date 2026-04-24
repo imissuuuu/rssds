@@ -336,13 +336,12 @@ static double tagBaseScore(lxb_dom_node_t* node) {
 static void addScore(std::vector<Candidate>& cands, lxb_dom_node_t* node, double score) {
     if (!node)
         return;
-    for (auto& c : cands) {
-        if (c.node == node) {
-            c.score += score;
-            return;
-        }
-    }
-    cands.push_back({node, score});
+    auto it = std::find_if(cands.begin(), cands.end(),
+                           [node](const Candidate& c) { return c.node == node; });
+    if (it != cands.end())
+        it->score += score;
+    else
+        cands.push_back({node, score});
 }
 
 struct ScoreCtx {
@@ -420,7 +419,8 @@ static lxb_dom_node_t* findTopCandidate(lxb_dom_node_t* body, std::vector<Candid
                     static const char* PRI_ID[] = {"article", "main", nullptr};
                     for (int i = 0; PRI_ID[i]; ++i) {
                         size_t klen = strlen(PRI_ID[i]);
-                        if (len == klen && strncmp((const char*)id, PRI_ID[i], klen) == 0) {
+                        if (len == klen &&
+                            strncmp(reinterpret_cast<const char*>(id), PRI_ID[i], klen) == 0) {
                             pctx->found = n;
                             return LEXBOR_ACTION_STOP;
                         }
@@ -476,25 +476,17 @@ collectSiblings(lxb_dom_node_t* top, const std::vector<Candidate>& cands, double
             result.push_back(sibling);
         } else if (sibling->type == LXB_DOM_NODE_TYPE_ELEMENT) {
             // スコアが閾値以上なら採用
-            for (const auto& c : cands) {
-                if (c.node == sibling && c.score >= threshold) {
-                    result.push_back(sibling);
-                    break;
-                }
-            }
+            if (std::any_of(cands.begin(), cands.end(), [sibling, threshold](const Candidate& c) {
+                    return c.node == sibling && c.score >= threshold;
+                }))
+                result.push_back(sibling);
             // <p> かつある程度テキストがあれば採用
             if (tagEq(sibling, "p")) {
                 size_t total = 0, link = 0, commas = 0;
                 getTextInfo(sibling, total, link, commas);
                 double ld = (total > 0) ? (double)link / (double)total : 0.0;
                 if (total >= 80 && ld < 0.25) {
-                    bool already = false;
-                    for (auto* r : result)
-                        if (r == sibling) {
-                            already = true;
-                            break;
-                        }
-                    if (!already)
+                    if (std::find(result.begin(), result.end(), sibling) == result.end())
                         result.push_back(sibling);
                 }
             }
@@ -557,7 +549,7 @@ static lexbor_action_t serialize_cb(lxb_dom_node_t* node, void* ctx) {
             size_t alen = 0;
             const lxb_char_t* src = getAttr(node, "src", &alen);
             if (src && alen > 0) {
-                std::string ref((const char*)src, alen);
+                std::string ref(reinterpret_cast<const char*>(src), alen);
                 std::string abs = c->baseUrl ? resolveUrl(*c->baseUrl, ref)
                                              : (ref.compare(0, 7, "http://") == 0 ||
                                                         ref.compare(0, 8, "https://") == 0
@@ -565,13 +557,9 @@ static lexbor_action_t serialize_cb(lxb_dom_node_t* node, void* ctx) {
                                                     : std::string());
                 if (!abs.empty()) {
                     bool dup = false;
-                    if (c->imageUrls) {
-                        for (const auto& u : *c->imageUrls)
-                            if (u == abs) {
-                                dup = true;
-                                break;
-                            }
-                    }
+                    if (c->imageUrls)
+                        dup = std::find(c->imageUrls->begin(), c->imageUrls->end(), abs) !=
+                              c->imageUrls->end();
                     if (!dup) {
                         bool withinCap = !c->imageUrls || c->imageUrls->size() < MAX_IMAGE_URLS;
                         if (withinCap) {
@@ -597,7 +585,7 @@ static lexbor_action_t serialize_cb(lxb_dom_node_t* node, void* ctx) {
         size_t len = 0;
         lxb_char_t* txt = lxb_dom_node_text_content(node, &len);
         if (txt)
-            c->out->append((char*)txt, len);
+            c->out->append(reinterpret_cast<char*>(txt), len);
     }
     return LEXBOR_ACTION_OK;
 }
@@ -698,7 +686,8 @@ std::string extractContent(const std::string& html, const std::string& url,
         return fb;
     }
 
-    lxb_status_t st = lxb_html_document_parse(doc, (const lxb_char_t*)html.c_str(), parse_len);
+    lxb_status_t st =
+        lxb_html_document_parse(doc, reinterpret_cast<const lxb_char_t*>(html.c_str()), parse_len);
     if (st != LXB_STATUS_OK) {
         lxb_html_document_destroy(doc);
         std::string fb = stripHtml(html);

@@ -12,10 +12,8 @@ std::string BookmarkStore::keyFor(const std::string& link, const std::string& ti
 
 bool BookmarkStore::isBookmarked(const std::string& link, const std::string& title) const {
     std::string key = keyFor(link, title);
-    for (const auto& b : bookmarks_)
-        if (keyFor(b.link, b.title) == key)
-            return true;
-    return false;
+    return std::any_of(bookmarks_.begin(), bookmarks_.end(),
+                       [&](const Bookmark& b) { return keyFor(b.link, b.title) == key; });
 }
 
 void BookmarkStore::toggle(const std::string& title, const std::string& link,

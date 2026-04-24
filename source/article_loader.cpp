@@ -1,6 +1,7 @@
 #include "article_loader.h"
 
 struct ArtXferCtx {
+    // cppcheck-suppress unusedStructMember
     ArticleLoader* loader;
 };
 

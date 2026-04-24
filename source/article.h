@@ -15,6 +15,3 @@ struct FetchedArticle {
 // progressFn/progressUd は省略可能（ダウンロード進捗コールバック）。
 FetchedArticle fetchArticleBody2(const std::string& url, std::string& errMsg,
                                  XferInfoFn progressFn = nullptr, void* progressUd = nullptr);
-
-// 既存互換: 本文テキストのみ返す薄いラッパ。
-std::string fetchArticleBody(const std::string& url, std::string& errMsg);

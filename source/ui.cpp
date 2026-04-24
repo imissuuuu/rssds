@@ -2,10 +2,12 @@
 #include "article.h"
 #include "html_strip.h"
 #include "settings.h"
+#include <algorithm>
 #include <citro2d.h>
 #include <cstdio>
 #include <cstring>
 #include <ctime>
+#include <numeric>
 #include <unordered_set>
 
 static constexpr int CONTENT_SHORT_THRESHOLD = 200;
@@ -595,9 +597,10 @@ static void drawArticleView(const AppState& state) {
     drawStatusBar();
 
     // totalDisplayLines: 各 ContentLine の占有行数の合計
-    int totalDisplayLines = 0;
-    for (const auto& cl : lines)
-        totalDisplayLines += (cl.kind == LineKind::Image) ? IMG_INLINE_LINES : 1;
+    int totalDisplayLines =
+        std::accumulate(lines.begin(), lines.end(), 0, [](int acc, const ContentLine& cl) {
+            return acc + ((cl.kind == LineKind::Image) ? IMG_INLINE_LINES : 1);
+        });
 
     int maxScroll = totalDisplayLines > TOP_MAX_LINES ? totalDisplayLines - TOP_MAX_LINES : 0;
     state.cachedMaxScroll = maxScroll;
@@ -917,6 +920,7 @@ void uiHandleInput(AppState& state, u32 kDown, u32 kHeld, u32 kRepeat) {
             state.refreshIdx = 0;
             state.statusMsg = "Refreshing...";
             state.currentScreen = Screen::LoadingAll;
+            // cppcheck-suppress unreadVariable
             kDown &= ~KEY_Y;
         }
         break;
@@ -976,7 +980,7 @@ void uiHandleInput(AppState& state, u32 kDown, u32 kHeld, u32 kRepeat) {
             }
         }
         if ((kDown & KEY_SELECT) && total > 0) {
-            Article& art = state.feeds[idx].articles[state.selectedArticle];
+            const Article& art = state.feeds[idx].articles[state.selectedArticle];
             const Feed& feed = state.feeds[idx];
             const std::string& feedTitle =
                 feed.title.empty() ? state.feedConfigs[idx].name : feed.title;
@@ -997,6 +1001,7 @@ void uiHandleInput(AppState& state, u32 kDown, u32 kHeld, u32 kRepeat) {
             state.currentScreen = Screen::FeedList;
             state.articleListScrollX = 0;
             state.statusMsg = "";
+            // cppcheck-suppress unreadVariable
             kDown &= ~KEY_B;
         }
         break;
@@ -1033,6 +1038,7 @@ void uiHandleInput(AppState& state, u32 kDown, u32 kHeld, u32 kRepeat) {
         // B → 保存せずに戻る
         if (kDown & KEY_B) {
             state.currentScreen = Screen::FeedList;
+            // cppcheck-suppress unreadVariable
             kDown &= ~KEY_B;
         }
         break;
@@ -1103,7 +1109,8 @@ void uiHandleInput(AppState& state, u32 kDown, u32 kHeld, u32 kRepeat) {
                 artLink = state.bookmarkTempArticle.link;
                 feedTitle = state.bookmarkTempFeedTitle;
             } else {
-                Article& art = state.feeds[state.selectedFeed].articles[state.selectedArticle];
+                const Article& art =
+                    state.feeds[state.selectedFeed].articles[state.selectedArticle];
                 const Feed& feed = state.feeds[state.selectedFeed];
                 artTitle = art.title;
                 artLink = art.link;
@@ -1125,6 +1132,7 @@ void uiHandleInput(AppState& state, u32 kDown, u32 kHeld, u32 kRepeat) {
                 state.viewingBookmark ? Screen::BookmarkList : Screen::ArticleList;
             state.viewingBookmark = false;
             state.statusMsg = "";
+            // cppcheck-suppress unreadVariable
             kDown &= ~KEY_B;
         }
         break;
@@ -1145,6 +1153,7 @@ void uiHandleInput(AppState& state, u32 kDown, u32 kHeld, u32 kRepeat) {
             }
             if (kDown & KEY_B) {
                 state.bookmarkConfirmRemove = false;
+                // cppcheck-suppress unreadVariable
                 kDown &= ~KEY_B;
             }
             break;
@@ -1177,6 +1186,7 @@ void uiHandleInput(AppState& state, u32 kDown, u32 kHeld, u32 kRepeat) {
         }
         if (kDown & KEY_B) {
             state.currentScreen = Screen::FeedList;
+            // cppcheck-suppress unreadVariable
             kDown &= ~KEY_B;
         }
         break;
@@ -1239,6 +1249,8 @@ void uiHandleInput(AppState& state, u32 kDown, u32 kHeld, u32 kRepeat) {
 
         if (kDown & KEY_B) {
             state.currentScreen = Screen::ArticleView;
+            // cppcheck-suppress unreadVariable
+            // cppcheck-suppress uselessAssignmentArg
             kDown &= ~KEY_B;
         }
         break;

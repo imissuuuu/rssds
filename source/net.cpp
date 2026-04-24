@@ -106,6 +106,7 @@ static std::string sniffCharsetFromBody(const std::string& body) {
     const char* p = body.c_str();
 
     // XML prolog
+    // cppcheck-suppress knownConditionTrueFalse
     if (scan >= 6 && strncmp(p, "<?xml", 5) == 0) {
         const char* end = static_cast<const char*>(memchr(p, '>', scan));
         if (end) {
@@ -125,13 +126,16 @@ static std::string sniffCharsetFromBody(const std::string& body) {
 
     // HTML <meta> — 大文字小文字を区別せず "charset=" を探す。
     // シンプルに: scan 範囲内で "charset=" を線形検索
+    // cppcheck-suppress knownConditionTrueFalse
     for (size_t i = 0; i + 8 < scan; ++i) {
         if (strncasecmp(p + i, "charset=", 8) != 0)
             continue;
         size_t start = i + 8;
+        // cppcheck-suppress knownConditionTrueFalse
         if (start < scan && (p[start] == '"' || p[start] == '\''))
             ++start;
         size_t end = start;
+        // cppcheck-suppress knownConditionTrueFalse
         while (end < scan) {
             char c = p[end];
             if (c == '"' || c == '\'' || c == ' ' || c == '>' || c == ';' || c == '/' ||

@@ -3,6 +3,7 @@
 #include "rss.h"
 
 struct FeedXferCtx {
+    // cppcheck-suppress unusedStructMember
     FeedLoader* loader;
 };
 
