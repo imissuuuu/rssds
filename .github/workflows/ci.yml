@@ -65,6 +65,7 @@ jobs:
             --suppress=missingIncludeSystem \
             --suppress=missingInclude \
             --suppress=toomanyconfigs \
+            "--suppress=*:/opt/devkitpro/*" \
             -I /opt/devkitpro/libctru/include \
             -I /opt/devkitpro/portlibs/3ds/include \
             --error-exitcode=1 \
