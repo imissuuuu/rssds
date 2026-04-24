@@ -1,7 +1,7 @@
 #pragma once
 
 struct AppSettings {
-    int scrollRepeatDelayMs    = 300;
+    int scrollRepeatDelayMs = 300;
     int scrollRepeatIntervalMs = 80;
 };
 

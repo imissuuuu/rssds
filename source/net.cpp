@@ -1,17 +1,19 @@
 #include "net.h"
 #include "sjis.h"
 #include <3ds.h>
-#include <curl/curl.h>
 #include <cctype>
-#include <cstring>
 #include <cstdio>
+#include <cstring>
+#include <curl/curl.h>
 #include <malloc.h>
 
 static constexpr u32 SOC_BUFFER_SIZE = 0x100000; // 1MB
 static u32* socBuffer = nullptr;
 static Result lastSocResult = 0;
 
-Result netLastError() { return lastSocResult; }
+Result netLastError() {
+    return lastSocResult;
+}
 
 static size_t writeCallback(char* ptr, size_t size, size_t nmemb, void* userdata) {
     auto* out = static_cast<std::string*>(userdata);
@@ -28,9 +30,11 @@ static size_t headerCallback(char* buffer, size_t size, size_t nitems, void* use
     // "content-type:" で始まるヘッダだけ対象
     static const char key[] = "content-type:";
     const size_t keyLen = sizeof(key) - 1;
-    if (total < keyLen) return total;
+    if (total < keyLen)
+        return total;
     for (size_t i = 0; i < keyLen; ++i) {
-        if (tolower((unsigned char)buffer[i]) != key[i]) return total;
+        if (tolower((unsigned char)buffer[i]) != key[i])
+            return total;
     }
 
     // charset=... を探す
@@ -38,12 +42,13 @@ static size_t headerCallback(char* buffer, size_t size, size_t nitems, void* use
         if (strncasecmp(buffer + i, "charset=", 8) == 0) {
             size_t start = i + 8;
             // 値は ; CR LF SP で終わる。" も剥がす。
-            if (start < total && (buffer[start] == '"' || buffer[start] == '\'')) ++start;
+            if (start < total && (buffer[start] == '"' || buffer[start] == '\''))
+                ++start;
             size_t end = start;
             while (end < total) {
                 char c = buffer[end];
-                if (c == ';' || c == '\r' || c == '\n' || c == ' '
-                    || c == '"' || c == '\'') break;
+                if (c == ';' || c == '\r' || c == '\n' || c == ' ' || c == '"' || c == '\'')
+                    break;
                 ++end;
             }
             charset->assign(buffer + start, end - start);
@@ -56,7 +61,8 @@ static size_t headerCallback(char* buffer, size_t size, size_t nitems, void* use
 bool netInit() {
     // socInit は 0x1000 境界アライメントが必要
     socBuffer = static_cast<u32*>(memalign(0x1000, SOC_BUFFER_SIZE));
-    if (!socBuffer) return false;
+    if (!socBuffer)
+        return false;
 
     Result ret = socInit(socBuffer, SOC_BUFFER_SIZE);
     lastSocResult = ret;
@@ -79,19 +85,17 @@ void netExit() {
 
 // charset 名を小文字化して比較し、Shift_JIS 系統なら true を返す。
 static bool isShiftJis(const std::string& cs) {
-    if (cs.empty()) return false;
+    if (cs.empty())
+        return false;
     std::string lo;
     lo.reserve(cs.size());
     for (char c : cs) {
-        if (c == '_' || c == '-') continue;  // shift-jis / shift_jis 吸収
+        if (c == '_' || c == '-')
+            continue; // shift-jis / shift_jis 吸収
         lo += static_cast<char>(tolower((unsigned char)c));
     }
-    return lo == "shiftjis"
-        || lo == "sjis"
-        || lo == "xsjis"
-        || lo == "mskanji"
-        || lo == "windows31j"
-        || lo == "cp932";
+    return lo == "shiftjis" || lo == "sjis" || lo == "xsjis" || lo == "mskanji" ||
+           lo == "windows31j" || lo == "cp932";
 }
 
 // body 先頭を軽くスキャンして charset を自己申告から拾う。
@@ -109,9 +113,11 @@ static std::string sniffCharsetFromBody(const std::string& body) {
             if (enc && enc < end) {
                 enc += 9;
                 char quote = (*enc == '"' || *enc == '\'') ? *enc : 0;
-                if (quote) ++enc;
+                if (quote)
+                    ++enc;
                 const char* e = enc;
-                while (e < end && *e != quote && *e != ' ' && *e != '?' && *e != '>') ++e;
+                while (e < end && *e != quote && *e != ' ' && *e != '?' && *e != '>')
+                    ++e;
                 return std::string(enc, e - enc);
             }
         }
@@ -120,17 +126,21 @@ static std::string sniffCharsetFromBody(const std::string& body) {
     // HTML <meta> — 大文字小文字を区別せず "charset=" を探す。
     // シンプルに: scan 範囲内で "charset=" を線形検索
     for (size_t i = 0; i + 8 < scan; ++i) {
-        if (strncasecmp(p + i, "charset=", 8) != 0) continue;
+        if (strncasecmp(p + i, "charset=", 8) != 0)
+            continue;
         size_t start = i + 8;
-        if (start < scan && (p[start] == '"' || p[start] == '\'')) ++start;
+        if (start < scan && (p[start] == '"' || p[start] == '\''))
+            ++start;
         size_t end = start;
         while (end < scan) {
             char c = p[end];
-            if (c == '"' || c == '\'' || c == ' ' || c == '>' || c == ';'
-                || c == '/' || c == '\r' || c == '\n') break;
+            if (c == '"' || c == '\'' || c == ' ' || c == '>' || c == ';' || c == '/' ||
+                c == '\r' || c == '\n')
+                break;
             ++end;
         }
-        if (end > start) return std::string(p + start, end - start);
+        if (end > start)
+            return std::string(p + start, end - start);
     }
 
     return {};
@@ -139,25 +149,23 @@ static std::string sniffCharsetFromBody(const std::string& body) {
 namespace {
 struct BinaryCtx {
     std::vector<uint8_t>* buf;
-    size_t                maxBytes;
-    bool                  aborted;
+    size_t maxBytes;
+    bool aborted;
 };
 
 struct XferCtxWrap {
     XferInfoFn fn;
-    void*      ud;
+    void* ud;
 };
-}
+} // namespace
 
-static int curlXferCb(void* ud, curl_off_t dltotal, curl_off_t dlnow,
-                       curl_off_t, curl_off_t) {
+static int curlXferCb(void* ud, curl_off_t dltotal, curl_off_t dlnow, curl_off_t, curl_off_t) {
     auto* w = static_cast<XferCtxWrap*>(ud);
     return w->fn(w->ud, (int64_t)dltotal, (int64_t)dlnow);
 }
 
-
-std::string httpGet(const std::string& url, std::string& errMsg,
-                    XferInfoFn progressFn, void* progressUd) {
+std::string httpGet(const std::string& url, std::string& errMsg, XferInfoFn progressFn,
+                    void* progressUd) {
     CURL* curl = curl_easy_init();
     if (!curl) {
         errMsg = "curl_easy_init failed";
@@ -168,24 +176,24 @@ std::string httpGet(const std::string& url, std::string& errMsg,
     std::string headerCharset;
     body.reserve(64 * 1024);
 
-    curl_easy_setopt(curl, CURLOPT_URL,             url.c_str());
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION,   writeCallback);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA,       &body);
-    curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION,  headerCallback);
-    curl_easy_setopt(curl, CURLOPT_HEADERDATA,      &headerCharset);
-    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION,  1L);
-    curl_easy_setopt(curl, CURLOPT_TIMEOUT,         15L);
-    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER,  1L);
-    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST,  2L);
-    curl_easy_setopt(curl, CURLOPT_CAINFO,          "sdmc:/3ds/rssreader/cacert.pem");
+    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, writeCallback);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &body);
+    curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, headerCallback);
+    curl_easy_setopt(curl, CURLOPT_HEADERDATA, &headerCharset);
+    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 15L);
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 2L);
+    curl_easy_setopt(curl, CURLOPT_CAINFO, "sdmc:/3ds/rssreader/cacert.pem");
     // ユーザーエージェント: 一部サーバーが空UAをブロックするため設定
-    curl_easy_setopt(curl, CURLOPT_USERAGENT,       "3DS-RSSReader/1.0");
+    curl_easy_setopt(curl, CURLOPT_USERAGENT, "3DS-RSSReader/1.0");
 
-    XferCtxWrap xferWrap { progressFn, progressUd };
+    XferCtxWrap xferWrap{progressFn, progressUd};
     if (progressFn) {
-        curl_easy_setopt(curl, CURLOPT_NOPROGRESS,       0L);
+        curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
         curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, curlXferCb);
-        curl_easy_setopt(curl, CURLOPT_XFERINFODATA,     &xferWrap);
+        curl_easy_setopt(curl, CURLOPT_XFERINFODATA, &xferWrap);
     }
 
     CURLcode res = curl_easy_perform(curl);
@@ -201,7 +209,8 @@ std::string httpGet(const std::string& url, std::string& errMsg,
     // Shift_JIS と判定された場合だけ UTF-8 へ変換する。
     // ITmedia 等、HTML を Shift_JIS で返す和サイト対策。
     std::string charset = headerCharset;
-    if (charset.empty()) charset = sniffCharsetFromBody(body);
+    if (charset.empty())
+        charset = sniffCharsetFromBody(body);
     if (isShiftJis(charset)) {
         return sjisToUtf8(body);
     }
@@ -209,11 +218,12 @@ std::string httpGet(const std::string& url, std::string& errMsg,
 }
 
 /**
- * @brief Appends a received binary chunk into the provided output buffer while enforcing a size limit.
+ * @brief Appends a received binary chunk into the provided output buffer while enforcing a size
+ * limit.
  *
- * Appends up to `sz * nm` bytes from `ptr` into the `BinaryCtx::buf`. If the context is already marked
- * aborted or adding the incoming chunk would exceed `BinaryCtx::maxBytes`, the function sets the
- * aborted flag (when applicable) and returns 0 to signal interruption to libcurl.
+ * Appends up to `sz * nm` bytes from `ptr` into the `BinaryCtx::buf`. If the context is already
+ * marked aborted or adding the incoming chunk would exceed `BinaryCtx::maxBytes`, the function sets
+ * the aborted flag (when applicable) and returns 0 to signal interruption to libcurl.
  *
  * @param ptr Pointer to the incoming data.
  * @param sz Size of each incoming element in bytes.
@@ -226,13 +236,13 @@ std::string httpGet(const std::string& url, std::string& errMsg,
 static size_t writeBinaryCallback(char* ptr, size_t sz, size_t nm, void* ud) {
     auto* ctx = static_cast<BinaryCtx*>(ud);
     size_t n = sz * nm;
-    if (ctx->aborted) return 0;
+    if (ctx->aborted)
+        return 0;
     if (ctx->buf->size() + n > ctx->maxBytes) {
         ctx->aborted = true;
-        return 0;  // libcurl に中断を伝える
+        return 0; // libcurl に中断を伝える
     }
-    ctx->buf->insert(ctx->buf->end(),
-                     reinterpret_cast<uint8_t*>(ptr),
+    ctx->buf->insert(ctx->buf->end(), reinterpret_cast<uint8_t*>(ptr),
                      reinterpret_cast<uint8_t*>(ptr) + n);
     return n;
 }
@@ -254,11 +264,8 @@ static size_t writeBinaryCallback(char* ptr, size_t sz, size_t nm, void* ud) {
  * @param progressUd User data pointer passed to `progressFn`.
  * @return std::vector<uint8_t> The downloaded bytes on success, or an empty vector on failure.
  */
-std::vector<uint8_t> httpGetBinary(const std::string& url,
-                                    size_t maxBytes,
-                                    std::string& errMsg,
-                                    XferInfoFn progressFn,
-                                    void*       progressUd) {
+std::vector<uint8_t> httpGetBinary(const std::string& url, size_t maxBytes, std::string& errMsg,
+                                   XferInfoFn progressFn, void* progressUd) {
     CURL* curl = curl_easy_init();
     if (!curl) {
         errMsg = "curl_easy_init failed";
@@ -266,24 +273,24 @@ std::vector<uint8_t> httpGetBinary(const std::string& url,
     }
 
     std::vector<uint8_t> buf;
-    BinaryCtx ctx { &buf, maxBytes, false };
+    BinaryCtx ctx{&buf, maxBytes, false};
 
-    curl_easy_setopt(curl, CURLOPT_URL,               url.c_str());
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION,     writeBinaryCallback);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA,         &ctx);
-    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION,    1L);
-    curl_easy_setopt(curl, CURLOPT_TIMEOUT,           30L);
-    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER,    1L);
-    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST,    2L);
-    curl_easy_setopt(curl, CURLOPT_CAINFO,            "sdmc:/3ds/rssreader/cacert.pem");
-    curl_easy_setopt(curl, CURLOPT_USERAGENT,         "3DS-RSSReader/1.0");
+    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, writeBinaryCallback);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &ctx);
+    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 30L);
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 2L);
+    curl_easy_setopt(curl, CURLOPT_CAINFO, "sdmc:/3ds/rssreader/cacert.pem");
+    curl_easy_setopt(curl, CURLOPT_USERAGENT, "3DS-RSSReader/1.0");
     curl_easy_setopt(curl, CURLOPT_MAXFILESIZE_LARGE, (curl_off_t)maxBytes);
 
-    XferCtxWrap xferWrap { progressFn, progressUd };
+    XferCtxWrap xferWrap{progressFn, progressUd};
     if (progressFn) {
-        curl_easy_setopt(curl, CURLOPT_NOPROGRESS,        0L);
-        curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION,  curlXferCb);
-        curl_easy_setopt(curl, CURLOPT_XFERINFODATA,      &xferWrap);
+        curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
+        curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, curlXferCb);
+        curl_easy_setopt(curl, CURLOPT_XFERINFODATA, &xferWrap);
     }
 
     CURLcode res = curl_easy_perform(curl);

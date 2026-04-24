@@ -2,7 +2,9 @@
 #include "net.h"
 #include "rss.h"
 
-struct FeedXferCtx { FeedLoader* loader; };
+struct FeedXferCtx {
+    FeedLoader* loader;
+};
 
 static int feedXferCb(void* ud, int64_t dltotal, int64_t dlnow) {
     static_cast<FeedXferCtx*>(ud)->loader->setProgress(dlnow, dltotal);
@@ -20,17 +22,20 @@ FeedLoader::~FeedLoader() {
 }
 
 void FeedLoader::start() {
-    if (running_) return;
-    stop_    = false;
+    if (running_)
+        return;
+    stop_ = false;
     running_ = true;
     s32 prio = 0x30;
     svcGetThreadPriority(&prio, CUR_THREAD_HANDLE);
     thread_ = threadCreate(trampoline, this, WORKER_STACK, prio + 1, -2, false);
-    if (!thread_) running_ = false;
+    if (!thread_)
+        running_ = false;
 }
 
 void FeedLoader::stop() {
-    if (!running_) return;
+    if (!running_)
+        return;
     stop_ = true;
     LightEvent_Signal(&wakeup_);
     if (thread_) {
@@ -40,15 +45,15 @@ void FeedLoader::stop() {
     }
     running_ = false;
     LightLock_Lock(&lock_);
-    hasJob_      = false;
+    hasJob_ = false;
     resultReady_ = false;
     LightLock_Unlock(&lock_);
 }
 
 void FeedLoader::submit(const std::string& url) {
     LightLock_Lock(&lock_);
-    pendingUrl_  = url;
-    hasJob_      = true;
+    pendingUrl_ = url;
+    hasJob_ = true;
     resultReady_ = false;
     LightLock_Unlock(&lock_);
 
@@ -65,7 +70,7 @@ bool FeedLoader::poll(FetchedFeed& out) {
         LightLock_Unlock(&lock_);
         return false;
     }
-    out          = std::move(result_);
+    out = std::move(result_);
     resultReady_ = false;
     LightLock_Unlock(&lock_);
     return true;
@@ -84,7 +89,8 @@ void FeedLoader::setProgress(int64_t dlnow, int64_t dltotal) {
         pct = (float)dlnow / (float)dltotal;
     else
         pct = (float)dlnow / (float)MAX_FEED_BYTES;
-    if (pct > 1.0f) pct = 1.0f;
+    if (pct > 1.0f)
+        pct = 1.0f;
     LightLock_Lock(&progressLock_);
     progress_ = pct;
     LightLock_Unlock(&progressLock_);
@@ -104,13 +110,14 @@ void FeedLoader::workerMain() {
             LightEvent_Clear(&wakeup_);
             continue;
         }
-        url    = pendingUrl_;
+        url = pendingUrl_;
         hasJob_ = false;
         LightLock_Unlock(&lock_);
 
-        if (stop_) return;
+        if (stop_)
+            return;
 
-        FeedXferCtx xctx { this };
+        FeedXferCtx xctx{this};
         std::string errMsg;
         std::string xml = httpGet(url, errMsg, feedXferCb, &xctx);
 
@@ -122,7 +129,7 @@ void FeedLoader::workerMain() {
         }
 
         LightLock_Lock(&lock_);
-        result_      = std::move(res);
+        result_ = std::move(res);
         resultReady_ = true;
         LightLock_Unlock(&lock_);
     }

@@ -1,22 +1,22 @@
 #pragma once
-#include <citro2d.h>
+#include "image_loader.h"
 #include <3ds.h>
+#include <citro2d.h>
+#include <cstdint>
 #include <string>
-#include <vector>
 #include <unordered_map>
 #include <unordered_set>
-#include <cstdint>
-#include "image_loader.h"
+#include <vector>
 
 enum class ImgState : uint8_t { None, Pending, Ready, Failed };
 
 struct CachedImage {
-    ImgState           state     = ImgState::None;
-    C3D_Tex            tex       {};
-    Tex3DS_SubTexture  sub       {};
-    bool               texInited = false;
-    int                imgW      = 0;
-    int                imgH      = 0;
+    ImgState state = ImgState::None;
+    C3D_Tex tex{};
+    Tex3DS_SubTexture sub{};
+    bool texInited = false;
+    int imgW = 0;
+    int imgH = 0;
 };
 
 /**
@@ -46,11 +46,11 @@ struct CachedImage {
  * loader is attached or the URL has no progress information.
  */
 class ImageCache {
-public:
+  public:
     ImageCache() = default;
     ~ImageCache() { releaseAll(); }
 
-    ImageCache(const ImageCache&)            = delete;
+    ImageCache(const ImageCache&) = delete;
     ImageCache& operator=(const ImageCache&) = delete;
 
     void attach(ImageLoader* loader) { loader_ = loader; }
@@ -70,17 +70,16 @@ public:
      * Get the download progress for a pending URL.
      *
      * @param url URL of the image to query.
-     * @returns `0.0`–`1.0` progress for the URL, or `-1.0` if no ImageLoader is attached or progress is unavailable.
+     * @returns `0.0`–`1.0` progress for the URL, or `-1.0` if no ImageLoader is attached or
+     * progress is unavailable.
      */
-    float getProgress(const std::string& url) {
-        return loader_ ? loader_->getProgress(url) : 0.0f;
-    }
+    float getProgress(const std::string& url) { return loader_ ? loader_->getProgress(url) : 0.0f; }
 
-private:
+  private:
     void uploadOne(DecodedImage&& d, const std::unordered_set<std::string>& visible);
     void releaseAll();
 
-    ImageLoader*                                  loader_ = nullptr;
-    std::vector<std::string>                      urls_;
-    std::unordered_map<std::string, CachedImage>  map_;
+    ImageLoader* loader_ = nullptr;
+    std::vector<std::string> urls_;
+    std::unordered_map<std::string, CachedImage> map_;
 };

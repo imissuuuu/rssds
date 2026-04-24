@@ -1,15 +1,15 @@
 #pragma once
 #include "article.h"
 #include <3ds.h>
-#include <string>
 #include <cstdint>
+#include <string>
 
 class ArticleLoader {
-public:
+  public:
     ArticleLoader();
     ~ArticleLoader();
 
-    ArticleLoader(const ArticleLoader&)            = delete;
+    ArticleLoader(const ArticleLoader&) = delete;
     ArticleLoader& operator=(const ArticleLoader&) = delete;
 
     void start();
@@ -27,28 +27,28 @@ public:
     // worker からのみ呼ぶ。
     void setProgress(int64_t dlnow, int64_t dltotal);
 
-private:
+  private:
     static void trampoline(void* self);
     void workerMain();
 
-    LightLock  lock_;
-    LightLock  progressLock_;
+    LightLock lock_;
+    LightLock progressLock_;
     LightEvent wakeup_;
 
-    std::string    pendingUrl_;
-    bool           hasJob_    = false;
+    std::string pendingUrl_;
+    bool hasJob_ = false;
 
     FetchedArticle resultArticle_;
-    std::string    resultErr_;
-    bool           resultReady_ = false;
+    std::string resultErr_;
+    bool resultReady_ = false;
 
-    float          progress_   = 0.0f;
+    float progress_ = 0.0f;
 
-    volatile bool  stop_       = false;
-    volatile bool  running_    = false;
-    Thread         thread_     = nullptr;
+    volatile bool stop_ = false;
+    volatile bool running_ = false;
+    Thread thread_ = nullptr;
 
-    static constexpr size_t WORKER_STACK   = 64u * 1024u;
+    static constexpr size_t WORKER_STACK = 64u * 1024u;
     // Content-Length なし時の進捗推定用: 記事HTML の典型的上限
     static constexpr size_t MAX_HTML_BYTES = 200u * 1024u;
 };

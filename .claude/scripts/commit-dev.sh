@@ -61,22 +61,38 @@ if [ -n "$ALLOWED" ]; then
   esac
 fi
 
+# clang-format チェック（インストールされている場合のみ）
+if command -v clang-format >/dev/null 2>&1; then
+  MODIFIED_CPP=$(git diff --name-only HEAD -- '*.cpp' '*.c' '*.h' '*.hpp' 2>/dev/null || true)
+  if [ -n "$MODIFIED_CPP" ]; then
+    echo "[commit-dev] clang-format check..."
+    if ! echo "$MODIFIED_CPP" | xargs clang-format --dry-run --Werror -style=file 2>&1; then
+      echo "ERROR: clang-format violations. Fix with: echo \"<files>\" | xargs clang-format -i -style=file" >&2
+      exit 1
+    fi
+    echo "[commit-dev] clang-format OK"
+  fi
+else
+  echo "[commit-dev] clang-format not found in PATH — skipping format check" >&2
+fi
+
 git add -u
 # 新規ファイルも追加（git add -u は未追跡ファイルをステージしないため）
 git add source/ assets/ 2>/dev/null || true
+git add .github/ .clang-format .clang-tidy 2>/dev/null || true
 git commit -m "$1
 
 Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 
-# PR creation — only in prefix mode
+# Push to remote
 case "$ALLOWED" in
   */)
+    # prefix mode: push + PR
     if ! command -v gh >/dev/null 2>&1; then
       echo "[commit-dev] gh CLI not found — skipping PR creation." >&2
       exit 0
     fi
 
-    # Push, setting upstream on first push
     if git rev-parse --abbrev-ref --symbolic-full-name '@{u}' >/dev/null 2>&1; then
       git push
     else
@@ -88,6 +104,23 @@ case "$ALLOWED" in
       echo "[commit-dev] PR #$EXISTING already open for $BRANCH -> $PR_BASE. Skipping create."
     else
       gh pr create --base "$PR_BASE" --head "$BRANCH" --fill
+    fi
+    ;;
+  *)
+    # exact branch mode: push + PR to pr_base (if set and gh available)
+    if git rev-parse --abbrev-ref --symbolic-full-name '@{u}' >/dev/null 2>&1; then
+      git push
+    else
+      git push -u origin "$BRANCH"
+    fi
+
+    if [ -n "$PR_BASE" ] && command -v gh >/dev/null 2>&1; then
+      EXISTING=$(gh pr list --head "$BRANCH" --base "$PR_BASE" --state open --json number --jq '.[0].number' 2>/dev/null || echo "")
+      if [ -n "$EXISTING" ]; then
+        echo "[commit-dev] PR #$EXISTING already open for $BRANCH -> $PR_BASE. Skipping create."
+      else
+        gh pr create --base "$PR_BASE" --head "$BRANCH" --fill
+      fi
     fi
     ;;
 esac

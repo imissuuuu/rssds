@@ -3,20 +3,19 @@
 
 static int nextPOT(int v) {
     int r = 8;
-    while (r < v) r <<= 1;
+    while (r < v)
+        r <<= 1;
     return r;
 }
 
 static inline uint32_t morton8(int x, int y) {
-    return ((uint32_t)(x & 1) << 0) | ((uint32_t)(y & 1) << 1)
-         | ((uint32_t)(x & 2) << 1) | ((uint32_t)(y & 2) << 2)
-         | ((uint32_t)(x & 4) << 2) | ((uint32_t)(y & 4) << 3);
+    return ((uint32_t)(x & 1) << 0) | ((uint32_t)(y & 1) << 1) | ((uint32_t)(x & 2) << 1) |
+           ((uint32_t)(y & 2) << 2) | ((uint32_t)(x & 4) << 2) | ((uint32_t)(y & 4) << 3);
 }
 
 // PDF: A,B,G,R byte 順 + 8x8 タイル Morton swizzle。
 // dst は texW*texH*4 byte 既確保。imgW/imgH はパディング前の有効領域。
-static void swizzleABGR(const uint8_t* src, int imgW, int imgH,
-                        uint8_t* dst, int texW, int texH) {
+static void swizzleABGR(const uint8_t* src, int imgW, int imgH, uint8_t* dst, int texW, int texH) {
     for (int y = 0; y < texH; ++y) {
         int ty = y >> 3;
         int py = y & 7;
@@ -32,7 +31,10 @@ static void swizzleABGR(const uint8_t* src, int imgW, int imgH,
                 d[2] = s[1]; // G
                 d[3] = s[0]; // R
             } else {
-                d[0] = 0; d[1] = 0; d[2] = 0; d[3] = 0;
+                d[0] = 0;
+                d[1] = 0;
+                d[2] = 0;
+                d[3] = 0;
             }
         }
     }
@@ -53,7 +55,8 @@ void ImageCache::resetForArticle(const std::vector<std::string>& urls) {
         loader_->cancelAll();
         // in-flight 1件分を含む既存結果を破棄
         DecodedImage d;
-        while (loader_->poll(d)) { /* discard */ }
+        while (loader_->poll(d)) { /* discard */
+        }
     }
     releaseAll();
     urls_ = urls;
@@ -65,7 +68,8 @@ void ImageCache::resetForArticle(const std::vector<std::string>& urls) {
 void ImageCache::tick(const std::unordered_set<std::string>& visible) {
     // 1. 不要なものを evict (state=None に戻して再取得を許可)
     for (auto& kv : map_) {
-        if (visible.count(kv.first)) continue;
+        if (visible.count(kv.first))
+            continue;
         if (kv.second.texInited) {
             C3D_TexDelete(&kv.second.tex);
             kv.second.texInited = false;
@@ -80,7 +84,8 @@ void ImageCache::tick(const std::unordered_set<std::string>& visible) {
     if (loader_) {
         for (const auto& u : visible) {
             auto it = map_.find(u);
-            if (it == map_.end()) continue;  // 別記事の URL は無視
+            if (it == map_.end())
+                continue; // 別記事の URL は無視
             if (it->second.state == ImgState::None) {
                 loader_->submit(u);
                 it->second.state = ImgState::Pending;
@@ -97,10 +102,10 @@ void ImageCache::tick(const std::unordered_set<std::string>& visible) {
     }
 }
 
-void ImageCache::uploadOne(DecodedImage&& d,
-                            const std::unordered_set<std::string>& visible) {
+void ImageCache::uploadOne(DecodedImage&& d, const std::unordered_set<std::string>& visible) {
     auto it = map_.find(d.url);
-    if (it == map_.end()) return;  // 別記事の残骸
+    if (it == map_.end())
+        return; // 別記事の残骸
 
     CachedImage& c = it->second;
 
@@ -128,18 +133,17 @@ void ImageCache::uploadOne(DecodedImage&& d,
     }
     c.texInited = true;
 
-    swizzleABGR(d.rgba.data(), d.imgW, d.imgH,
-                static_cast<uint8_t*>(c.tex.data), texW, texH);
+    swizzleABGR(d.rgba.data(), d.imgW, d.imgH, static_cast<uint8_t*>(c.tex.data), texW, texH);
     C3D_TexSetFilter(&c.tex, GPU_LINEAR, GPU_LINEAR);
     C3D_TexFlush(&c.tex);
 
     c.imgW = d.imgW;
     c.imgH = d.imgH;
-    c.sub.width  = (u16)d.imgW;
+    c.sub.width = (u16)d.imgW;
     c.sub.height = (u16)d.imgH;
-    c.sub.left   = 0.0f;
-    c.sub.right  = (float)d.imgW / (float)texW;
-    c.sub.top    = 1.0f;
+    c.sub.left = 0.0f;
+    c.sub.right = (float)d.imgW / (float)texW;
+    c.sub.top = 1.0f;
     c.sub.bottom = 1.0f - (float)d.imgH / (float)texH;
     c.state = ImgState::Ready;
 }

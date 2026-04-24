@@ -1,6 +1,8 @@
 #include "article_loader.h"
 
-struct ArtXferCtx { ArticleLoader* loader; };
+struct ArtXferCtx {
+    ArticleLoader* loader;
+};
 
 static int artXferCb(void* ud, int64_t dltotal, int64_t dlnow) {
     static_cast<ArtXferCtx*>(ud)->loader->setProgress(dlnow, dltotal);
@@ -18,17 +20,20 @@ ArticleLoader::~ArticleLoader() {
 }
 
 void ArticleLoader::start() {
-    if (running_) return;
-    stop_    = false;
+    if (running_)
+        return;
+    stop_ = false;
     running_ = true;
     s32 prio = 0x30;
     svcGetThreadPriority(&prio, CUR_THREAD_HANDLE);
     thread_ = threadCreate(trampoline, this, WORKER_STACK, prio + 1, -2, false);
-    if (!thread_) running_ = false;
+    if (!thread_)
+        running_ = false;
 }
 
 void ArticleLoader::stop() {
-    if (!running_) return;
+    if (!running_)
+        return;
     stop_ = true;
     LightEvent_Signal(&wakeup_);
     if (thread_) {
@@ -38,15 +43,15 @@ void ArticleLoader::stop() {
     }
     running_ = false;
     LightLock_Lock(&lock_);
-    hasJob_      = false;
+    hasJob_ = false;
     resultReady_ = false;
     LightLock_Unlock(&lock_);
 }
 
 void ArticleLoader::submit(const std::string& url) {
     LightLock_Lock(&lock_);
-    pendingUrl_  = url;
-    hasJob_      = true;
+    pendingUrl_ = url;
+    hasJob_ = true;
     resultReady_ = false;
     LightLock_Unlock(&lock_);
 
@@ -63,7 +68,7 @@ bool ArticleLoader::poll(FetchedArticle& out, std::string& errMsg) {
         LightLock_Unlock(&lock_);
         return false;
     }
-    out    = std::move(resultArticle_);
+    out = std::move(resultArticle_);
     errMsg = std::move(resultErr_);
     resultReady_ = false;
     LightLock_Unlock(&lock_);
@@ -83,7 +88,8 @@ void ArticleLoader::setProgress(int64_t dlnow, int64_t dltotal) {
         pct = (float)dlnow / (float)dltotal;
     else
         pct = (float)dlnow / (float)MAX_HTML_BYTES;
-    if (pct > 1.0f) pct = 1.0f;
+    if (pct > 1.0f)
+        pct = 1.0f;
     LightLock_Lock(&progressLock_);
     progress_ = pct;
     LightLock_Unlock(&progressLock_);
@@ -103,20 +109,21 @@ void ArticleLoader::workerMain() {
             LightEvent_Clear(&wakeup_);
             continue;
         }
-        url    = pendingUrl_;
+        url = pendingUrl_;
         hasJob_ = false;
         LightLock_Unlock(&lock_);
 
-        if (stop_) return;
+        if (stop_)
+            return;
 
-        ArtXferCtx xctx { this };
+        ArtXferCtx xctx{this};
         std::string errMsg;
         FetchedArticle art = fetchArticleBody2(url, errMsg, artXferCb, &xctx);
 
         LightLock_Lock(&lock_);
         resultArticle_ = std::move(art);
-        resultErr_     = std::move(errMsg);
-        resultReady_   = true;
+        resultErr_ = std::move(errMsg);
+        resultReady_ = true;
         LightLock_Unlock(&lock_);
     }
 }

@@ -62,7 +62,6 @@ jobs:
             --enable=all \
             --language=c++ \
             --platform=unix32 \
-            --check-level=normal \
             --suppress=missingIncludeSystem \
             --suppress=unmatchedSuppression \
             -I /opt/devkitpro/libctru/include \

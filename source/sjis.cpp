@@ -23,21 +23,25 @@ static void appendUtf8(std::string& out, uint32_t cp) {
 
 // SJIS 先頭バイト → sjis_table 行インデックス (0..59)、範囲外は -1
 static inline int sjisLeadBucket(uint8_t c) {
-    if (c >= 0x81 && c <= 0x9F) return c - 0x81;         // 0..30
-    if (c >= 0xE0 && c <= 0xFC) return c - 0xE0 + 31;    // 31..59
+    if (c >= 0x81 && c <= 0x9F)
+        return c - 0x81; // 0..30
+    if (c >= 0xE0 && c <= 0xFC)
+        return c - 0xE0 + 31; // 31..59
     return -1;
 }
 
 // SJIS 後続バイト → sjis_table 列インデックス (0..187)、範囲外は -1
 static inline int sjisTrailBucket(uint8_t c) {
-    if (c >= 0x40 && c <= 0x7E) return c - 0x40;         // 0..62
-    if (c >= 0x80 && c <= 0xFC) return c - 0x80 + 63;    // 63..187
+    if (c >= 0x40 && c <= 0x7E)
+        return c - 0x40; // 0..62
+    if (c >= 0x80 && c <= 0xFC)
+        return c - 0x80 + 63; // 63..187
     return -1;
 }
 
 std::string sjisToUtf8(const std::string& sjis) {
     std::string out;
-    out.reserve(sjis.size() * 3 / 2);  // 控えめに 1.5 倍で予約
+    out.reserve(sjis.size() * 3 / 2); // 控えめに 1.5 倍で予約
 
     const uint8_t* p = reinterpret_cast<const uint8_t*>(sjis.data());
     const size_t len = sjis.size();
