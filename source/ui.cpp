@@ -920,7 +920,7 @@ void uiHandleInput(AppState& state, u32 kDown, u32 kHeld, u32 kRepeat) {
             state.refreshIdx = 0;
             state.statusMsg = "Refreshing...";
             state.currentScreen = Screen::LoadingAll;
-            kDown &= ~KEY_Y; // cppcheck-suppress unreadVariable
+            kDown &= ~KEY_Y;
         }
         break;
     }
@@ -1000,7 +1000,7 @@ void uiHandleInput(AppState& state, u32 kDown, u32 kHeld, u32 kRepeat) {
             state.currentScreen = Screen::FeedList;
             state.articleListScrollX = 0;
             state.statusMsg = "";
-            kDown &= ~KEY_B; // cppcheck-suppress unreadVariable
+            kDown &= ~KEY_B;
         }
         break;
     }
@@ -1036,7 +1036,7 @@ void uiHandleInput(AppState& state, u32 kDown, u32 kHeld, u32 kRepeat) {
         // B → 保存せずに戻る
         if (kDown & KEY_B) {
             state.currentScreen = Screen::FeedList;
-            kDown &= ~KEY_B; // cppcheck-suppress unreadVariable
+            kDown &= ~KEY_B;
         }
         break;
     }
@@ -1129,7 +1129,7 @@ void uiHandleInput(AppState& state, u32 kDown, u32 kHeld, u32 kRepeat) {
                 state.viewingBookmark ? Screen::BookmarkList : Screen::ArticleList;
             state.viewingBookmark = false;
             state.statusMsg = "";
-            kDown &= ~KEY_B; // cppcheck-suppress unreadVariable
+            kDown &= ~KEY_B;
         }
         break;
     }
@@ -1149,7 +1149,7 @@ void uiHandleInput(AppState& state, u32 kDown, u32 kHeld, u32 kRepeat) {
             }
             if (kDown & KEY_B) {
                 state.bookmarkConfirmRemove = false;
-                kDown &= ~KEY_B; // cppcheck-suppress unreadVariable
+                kDown &= ~KEY_B;
             }
             break;
         }
@@ -1181,7 +1181,7 @@ void uiHandleInput(AppState& state, u32 kDown, u32 kHeld, u32 kRepeat) {
         }
         if (kDown & KEY_B) {
             state.currentScreen = Screen::FeedList;
-            kDown &= ~KEY_B; // cppcheck-suppress unreadVariable
+            kDown &= ~KEY_B;
         }
         break;
     }
@@ -1243,8 +1243,7 @@ void uiHandleInput(AppState& state, u32 kDown, u32 kHeld, u32 kRepeat) {
 
         if (kDown & KEY_B) {
             state.currentScreen = Screen::ArticleView;
-            kDown &=
-                ~KEY_B; // cppcheck-suppress unreadVariable cppcheck-suppress uselessAssignmentArg
+            kDown &= ~KEY_B;
         }
         break;
     }
