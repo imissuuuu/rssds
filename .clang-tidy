@@ -9,7 +9,6 @@ Checks: >
   readability-inconsistent-declaration-parameter-name
 
 HeaderFilterRegex: "(source|include)/.*"
-SystemHeaders: false
 
 CheckOptions:
   - key: bugprone-signed-char-misuse.CharTypdefsToIgnore
