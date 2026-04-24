@@ -4,7 +4,7 @@
 
 struct FeedConfig {
     std::string url;
-    std::string name;           // 省略時は url をそのまま使用
+    std::string name; // 省略時は url をそのまま使用
     bool fetch_full_text = false;
 };
 

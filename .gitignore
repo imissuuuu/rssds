@@ -13,3 +13,7 @@ inbox/
 
 # SD card assets (deploy separately)
 rssreader/
+
+# Local test artifacts
+dumps/
+review_result.json

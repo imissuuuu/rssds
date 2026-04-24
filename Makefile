@@ -12,11 +12,15 @@ include $(DEVKITPRO)/devkitARM/3ds_rules
 #---------------------------------------------------------------------------------
 TARGET		:=	rssds
 BUILD		:=	build
-SOURCES		:=	source lib/tinyxml2
+SOURCES		:=	source lib/tinyxml2 lib/lexbor
 DATA		:=	data
-INCLUDES	:=	include lib/tinyxml2 lib/nlohmann
+INCLUDES	:=	include lib/tinyxml2 lib/nlohmann lib/lexbor lib/stb
 GRAPHICS	:=	gfx
 ROMFS		:=	romfs
+
+FALLBACK_FONT  := $(CURDIR)/romfs/fallback.bcfnt
+FONT_TTF       := $(CURDIR)/assets/fonts/NotoSansSymbols2-Regular.ttf
+FONT_WHITELIST := $(CURDIR)/assets/fonts/symbols_whitelist.txt
 
 APP_TITLE		:= RSS Reader
 APP_DESCRIPTION	:= RSS Feed Reader for Nintendo 3DS
@@ -25,9 +29,15 @@ APP_AUTHOR		:=
 #---------------------------------------------------------------------------------
 ARCH	:=	-march=armv6k -mtune=mpcore -mfloat-abi=hard -mtp=soft
 
-CFLAGS	:=	-g -Wall -O2 -mword-relocations \
+CFLAGS	:=	-g -Wall -Wextra -Wno-unused-parameter -Wno-sign-compare -Wno-maybe-uninitialized \
+			-O2 -mword-relocations \
 			-fomit-frame-pointer -ffunction-sections \
 			$(ARCH)
+
+# CI=true のとき警告をエラーに昇格（GitHub Actions が自動設定）
+ifdef CI
+CFLAGS	+=	-Werror
+endif
 
 CFLAGS	+=	$(INCLUDE) -D__3DS__
 
@@ -97,7 +107,11 @@ endif
 
 .PHONY: $(BUILD) clean all
 
-all: $(BUILD)
+all: $(FALLBACK_FONT) $(BUILD)
+
+$(FALLBACK_FONT): $(FONT_TTF) $(FONT_WHITELIST)
+	@echo "mkbcfnt: generating fallback.bcfnt"
+	@mkbcfnt -w $(FONT_WHITELIST) -o $@ $(FONT_TTF)
 
 $(BUILD):
 	@[ -d $@ ] || mkdir -p $@
@@ -105,7 +119,7 @@ $(BUILD):
 
 clean:
 	@echo clean ...
-	@rm -fr $(BUILD) $(TARGET).3dsx $(OUTPUT).smdh $(TARGET).elf
+	@rm -fr $(BUILD) $(TARGET).3dsx $(OUTPUT).smdh $(TARGET).elf $(FALLBACK_FONT)
 
 #---------------------------------------------------------------------------------
 else

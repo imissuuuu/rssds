@@ -1,0 +1,104 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # ── ゲート 1: フォーマットチェック ────────────────────────────
+  format:
+    name: clang-format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install clang-format
+        run: sudo apt-get update && sudo apt-get install -y clang-format
+
+      - name: Check formatting
+        run: |
+          files=$(git ls-files 'source/*.cpp' 'source/*.h' 'source/*.c' 'include/*.h' 'include/*.hpp')
+          if [ -n "$files" ]; then
+            echo "$files" | xargs clang-format --dry-run --Werror -style=file
+          fi
+
+  # ── ゲート 2: ビルド確認 + cppcheck ──────────────────────────
+  build:
+    name: Build & Static Analysis
+    runs-on: ubuntu-latest
+    container:
+      image: devkitpro/devkitarm:20260221
+      options: --user root
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Install cppcheck
+        run: apt-get update && apt-get install -y cppcheck
+
+      - name: Build
+        run: make -j$(nproc)
+
+      - name: Verify output
+        run: test -f rssds.3dsx
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: rssds-build
+          path: |
+            rssds.3dsx
+            rssds.elf
+
+      - name: cppcheck
+        run: |
+          cppcheck \
+            --enable=warning,performance,portability \
+            --language=c++ \
+            --platform=unix32 \
+            --suppress=missingIncludeSystem \
+            --suppress=missingInclude \
+            --suppress=toomanyconfigs \
+            "--suppress=*:/opt/devkitpro/*" \
+            -I /opt/devkitpro/libctru/include \
+            -I /opt/devkitpro/portlibs/3ds/include \
+            --error-exitcode=1 \
+            source/
+
+  # ── 試行: clang-tidy（non-blocking）──────────────────────────
+  clang-tidy:
+    name: clang-tidy (experimental)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    container:
+      image: devkitpro/devkitarm:20260221
+      options: --user root
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Install tools
+        run: apt-get update && apt-get install -y bear clang-tidy python3
+
+      - name: Generate compile_commands.json
+        run: bear -- make -j$(nproc)
+
+      - name: Strip ARM-specific flags
+        run: python3 .claude/scripts/strip_arm_flags.py
+
+      - name: Run clang-tidy
+        run: |
+          run-clang-tidy \
+            -p . \
+            -header-filter='(source|include)/.*' \
+            -extra-arg='-std=gnu++17' \
+            -extra-arg='--query-driver=/opt/devkitpro/devkitARM/bin/arm-none-eabi-g++' \
+            $(find source -name '*.cpp')
