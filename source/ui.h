@@ -21,8 +21,13 @@ enum class Screen {
     ImageView,
     Settings,
     LoadingArticle,
-    BookmarkList
+    BookmarkList,
+    ManageFeeds,
 };
+
+enum class FeedListPopup { None, Menu, Move, DeleteConfirm };
+
+enum class ManageFeedsPopup { None, Menu, Move, DeleteConfirm, DiscardConfirm };
 
 enum class LineKind : uint8_t { Text, Image };
 
@@ -97,6 +102,21 @@ struct AppState {
     std::string bookmarkTempFeedTitle;
     bool viewingBookmark = false;
     bool bookmarkConfirmRemove = false;
+
+    // FeedList ポップアップ
+    FeedListPopup feedListPopup = FeedListPopup::None;
+    int feedListPopupMenuSel = 0; // 0=Move, 1=Delete
+    int feedListPopupTarget = -1;
+    int feedListMoveInsertPos = 0; // 0..feedConfigs.size()
+
+    // ManageFeeds 画面
+    std::vector<FeedConfig> manageFeedsEditing;
+    int manageFeedsSelected = 0;
+    bool manageFeedsDirty = false;
+    ManageFeedsPopup manageFeedsPopup = ManageFeedsPopup::None;
+    int manageFeedsPopupMenuSel = 0; // 0=Move, 1=Delete
+    int manageFeedsPopupTarget = -1;
+    int manageFeedsMoveInsertPos = 0; // 0..manageFeedsEditing.size()
 };
 
 void uiInit();

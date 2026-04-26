@@ -439,13 +439,15 @@ static void drawFeedList(const AppState& state) {
                  TEXT_SCALE, CLR_ERROR);
     }
 
-    // 下画面: フィード一覧 + Settings エントリ（feedConfigs から名前を取得）
+    // 下画面: フィード一覧 + 固定エントリ (Bookmarks / Add Feed / Settings)
     C2D_TargetClear(botTarget, CLR_PANEL);
     C2D_SceneBegin(botTarget);
 
     int feedCount = (int)state.feedConfigs.size();
-    int total = feedCount + 2; // +1 for Bookmarks, +1 for Settings
-    int start = state.selectedFeed - BOT_MAX_LINES / 2;
+    int total = feedCount + 3; // Bookmarks, Add Feed, Settings
+    int scrollAnchor = (state.feedListPopup == FeedListPopup::Move) ? state.feedListMoveInsertPos
+                                                                    : state.selectedFeed;
+    int start = scrollAnchor - BOT_MAX_LINES / 2;
     if (start < 0)
         start = 0;
     if (start > total - BOT_MAX_LINES && total > BOT_MAX_LINES)
@@ -454,25 +456,54 @@ static void drawFeedList(const AppState& state) {
     char label[256];
     for (int i = start; i < total && (i - start) < BOT_MAX_LINES; ++i) {
         float y = TEXT_MARGIN_Y + (float)(i - start) * LINE_HEIGHT;
-        if (i == state.selectedFeed) {
+        if (i == state.selectedFeed)
             C2D_DrawRectSolid(0, y - 1.0f, 0.0f, BOT_W, LINE_HEIGHT + 1.0f, CLR_SEL_BG);
-        }
-        if (i < feedCount)
+
+        u32 clr = CLR_TEXT;
+        if (i < feedCount) {
             snprintf(label, sizeof(label), "%s", state.feedConfigs[i].name.c_str());
-        else if (i == feedCount)
+            // Move モード中: 移動元をグレーアウト
+            if (state.feedListPopup == FeedListPopup::Move && i == state.feedListPopupTarget)
+                clr = CLR_HINT;
+        } else if (i == feedCount) {
+            snprintf(label, sizeof(label), "[Add Feed]");
+        } else if (i == feedCount + 1) {
             snprintf(label, sizeof(label), "\xe2\x98\x85 Bookmarks");
-        else
+        } else {
             snprintf(label, sizeof(label), "[Settings]");
-        drawText(label, TEXT_MARGIN_X, y, 0.5f, TEXT_SCALE, TEXT_SCALE, CLR_TEXT);
+        }
+        drawText(label, TEXT_MARGIN_X, y, 0.5f, TEXT_SCALE, TEXT_SCALE, clr);
     }
 
-    if (feedCount == 0) {
-        drawText("No feeds. Add feeds.json to SD card.", TEXT_MARGIN_X, TEXT_MARGIN_Y + LINE_HEIGHT,
-                 0.5f, TEXT_SCALE, TEXT_SCALE, CLR_HINT);
+    // Move モード: 挿入ライン描画
+    if (state.feedListPopup == FeedListPopup::Move) {
+        int pos = state.feedListMoveInsertPos; // 0..feedCount
+        float lineY = TEXT_MARGIN_Y + (float)(pos - start) * LINE_HEIGHT - 1.0f;
+        if (lineY >= TEXT_MARGIN_Y - LINE_HEIGHT && lineY < BOT_H - 30.0f)
+            C2D_DrawRectSolid(0, lineY, 0.6f, BOT_W, 2.0f, CLR_TITLE);
     }
 
-    drawText("Up/Down:move  A:open/enter  Y:refresh  START:quit", TEXT_MARGIN_X, BOT_H - 16.0f,
-             0.5f, 0.42f, 0.42f, CLR_HINT);
+    // SELECT ポップアップ: Menu
+    if (state.feedListPopup == FeedListPopup::Menu) {
+        constexpr float DX = 30.0f, DY = 70.0f, DW = BOT_W - 60.0f, DH = 60.0f;
+        C2D_DrawRectSolid(DX, DY, 0.6f, DW, DH, CLR_SEL_BG);
+        drawText(state.feedListPopupMenuSel == 0 ? "> Move" : "  Move", DX + 8.0f, DY + 8.0f, 0.7f,
+                 TEXT_SCALE, TEXT_SCALE, state.feedListPopupMenuSel == 0 ? CLR_TEXT : CLR_HINT);
+        drawText(state.feedListPopupMenuSel == 1 ? "> Delete" : "  Delete", DX + 8.0f, DY + 28.0f,
+                 0.7f, TEXT_SCALE, TEXT_SCALE,
+                 state.feedListPopupMenuSel == 1 ? CLR_TEXT : CLR_HINT);
+    }
+
+    // SELECT ポップアップ: Delete 確認
+    if (state.feedListPopup == FeedListPopup::DeleteConfirm) {
+        constexpr float DX = 30.0f, DY = 80.0f, DW = BOT_W - 60.0f, DH = 54.0f;
+        C2D_DrawRectSolid(DX, DY, 0.6f, DW, DH, CLR_SEL_BG);
+        drawText("Delete this feed?", DX + 8.0f, DY + 8.0f, 0.7f, TEXT_SCALE, TEXT_SCALE, CLR_TEXT);
+        drawText("A:Yes  B:Cancel", DX + 8.0f, DY + 28.0f, 0.7f, TEXT_SCALE, TEXT_SCALE, CLR_HINT);
+    }
+
+    drawText("Up/Down:move  A:open  SEL:manage  Y:refresh  START:quit", TEXT_MARGIN_X,
+             BOT_H - 16.0f, 0.5f, 0.42f, 0.42f, CLR_HINT);
 }
 
 static void drawArticleList(const AppState& state) {
@@ -824,18 +855,18 @@ static void drawSettings(const AppState& state) {
         int value;
         bool isAction;
     };
-    const Item items[3] = {
+    const Item items[4] = {
         {"Scroll Delay", state.settings.scrollRepeatDelayMs, false},
         {"Scroll Interval", state.settings.scrollRepeatIntervalMs, false},
+        {"Manage Feeds", 0, true},
         {"Save", 0, true},
     };
 
     char buf[64];
-    for (int i = 0; i < 3; ++i) {
+    for (int i = 0; i < 4; ++i) {
         float y = TEXT_MARGIN_Y + (float)i * LINE_HEIGHT;
-        if (i == state.settingsSelectedItem) {
+        if (i == state.settingsSelectedItem)
             C2D_DrawRectSolid(0, y - 1.0f, 0.0f, BOT_W, LINE_HEIGHT + 1.0f, CLR_SEL_BG);
-        }
         if (items[i].isAction)
             snprintf(buf, sizeof(buf), "%s", items[i].label);
         else
@@ -843,8 +874,95 @@ static void drawSettings(const AppState& state) {
         drawText(buf, TEXT_MARGIN_X, y, 0.5f, TEXT_SCALE, TEXT_SCALE, CLR_TEXT);
     }
 
-    drawText("Up/Down:select  L/R:change  A:save  B:back", TEXT_MARGIN_X, BOT_H - 16.0f, 0.5f,
+    drawText("Up/Down:select  L/R:change  A:select  B:back", TEXT_MARGIN_X, BOT_H - 16.0f, 0.5f,
              0.42f, 0.42f, CLR_HINT);
+}
+
+static void drawManageFeeds(const AppState& state) {
+    C2D_TargetClear(topTarget, CLR_BG);
+    C2D_SceneBegin(topTarget);
+    drawStatusBar();
+    drawStyledText("Manage Feeds", TEXT_MARGIN_X, TOP_CONTENT_Y, 0.5f, TextStyle::Heading);
+    if (!state.statusMsg.empty())
+        drawText(state.statusMsg.c_str(), TEXT_MARGIN_X, 40.0f + STATUSBAR_H, 0.5f, TEXT_SCALE,
+                 TEXT_SCALE, CLR_ERROR);
+
+    C2D_TargetClear(botTarget, CLR_PANEL);
+    C2D_SceneBegin(botTarget);
+
+    // インデックス体系: 0=[Add Feed], 1..M=フィード, M+1=Save, M+2=Exit
+    int M = (int)state.manageFeedsEditing.size();
+    int listTotal = M + 3;
+    int mScrollAnchor = (state.manageFeedsPopup == ManageFeedsPopup::Move)
+                            ? (state.manageFeedsMoveInsertPos + 1)
+                            : state.manageFeedsSelected;
+    int start = mScrollAnchor - BOT_MAX_LINES / 2;
+    if (start < 0)
+        start = 0;
+    if (start > listTotal - BOT_MAX_LINES && listTotal > BOT_MAX_LINES)
+        start = listTotal - BOT_MAX_LINES;
+
+    char label[256];
+    for (int i = start; i < listTotal && (i - start) < BOT_MAX_LINES; ++i) {
+        float y = TEXT_MARGIN_Y + (float)(i - start) * LINE_HEIGHT;
+        if (i == state.manageFeedsSelected)
+            C2D_DrawRectSolid(0, y - 1.0f, 0.0f, BOT_W, LINE_HEIGHT + 1.0f, CLR_SEL_BG);
+
+        u32 clr = CLR_TEXT;
+        if (i == 0) {
+            snprintf(label, sizeof(label), "[Add Feed]");
+        } else if (i <= M) {
+            snprintf(label, sizeof(label), "%s", state.manageFeedsEditing[i - 1].name.c_str());
+            if (state.manageFeedsPopup == ManageFeedsPopup::Move &&
+                i - 1 == state.manageFeedsPopupTarget)
+                clr = CLR_HINT;
+        } else if (i == M + 1) {
+            snprintf(label, sizeof(label), "Save");
+        } else {
+            snprintf(label, sizeof(label), "Exit");
+        }
+        drawText(label, TEXT_MARGIN_X, y, 0.5f, TEXT_SCALE, TEXT_SCALE, clr);
+    }
+
+    // Move モード: 挿入ライン描画（フィード群は i=1..M なので pos=0..M、表示 y オフセット +1）
+    if (state.manageFeedsPopup == ManageFeedsPopup::Move) {
+        int pos = state.manageFeedsMoveInsertPos; // 0..M (manageFeedsEditing内位置)
+        int displayPos = pos + 1;                 // 画面上の行インデックス (Add Feedが0なので+1)
+        float lineY = TEXT_MARGIN_Y + (float)(displayPos - start) * LINE_HEIGHT - 1.0f;
+        if (lineY >= TEXT_MARGIN_Y - LINE_HEIGHT && lineY < BOT_H - 30.0f)
+            C2D_DrawRectSolid(0, lineY, 0.6f, BOT_W, 2.0f, CLR_TITLE);
+    }
+
+    // ポップアップ: Menu
+    if (state.manageFeedsPopup == ManageFeedsPopup::Menu) {
+        constexpr float DX = 30.0f, DY = 70.0f, DW = BOT_W - 60.0f, DH = 60.0f;
+        C2D_DrawRectSolid(DX, DY, 0.6f, DW, DH, CLR_SEL_BG);
+        drawText(state.manageFeedsPopupMenuSel == 0 ? "> Move" : "  Move", DX + 8.0f, DY + 8.0f,
+                 0.7f, TEXT_SCALE, TEXT_SCALE,
+                 state.manageFeedsPopupMenuSel == 0 ? CLR_TEXT : CLR_HINT);
+        drawText(state.manageFeedsPopupMenuSel == 1 ? "> Delete" : "  Delete", DX + 8.0f,
+                 DY + 28.0f, 0.7f, TEXT_SCALE, TEXT_SCALE,
+                 state.manageFeedsPopupMenuSel == 1 ? CLR_TEXT : CLR_HINT);
+    }
+
+    // ポップアップ: Delete 確認
+    if (state.manageFeedsPopup == ManageFeedsPopup::DeleteConfirm) {
+        constexpr float DX = 30.0f, DY = 80.0f, DW = BOT_W - 60.0f, DH = 54.0f;
+        C2D_DrawRectSolid(DX, DY, 0.6f, DW, DH, CLR_SEL_BG);
+        drawText("Delete this feed?", DX + 8.0f, DY + 8.0f, 0.7f, TEXT_SCALE, TEXT_SCALE, CLR_TEXT);
+        drawText("A:Yes  B:Cancel", DX + 8.0f, DY + 28.0f, 0.7f, TEXT_SCALE, TEXT_SCALE, CLR_HINT);
+    }
+
+    // ポップアップ: Discard 確認
+    if (state.manageFeedsPopup == ManageFeedsPopup::DiscardConfirm) {
+        constexpr float DX = 20.0f, DY = 75.0f, DW = BOT_W - 40.0f, DH = 60.0f;
+        C2D_DrawRectSolid(DX, DY, 0.6f, DW, DH, CLR_SEL_BG);
+        drawText("Discard changes?", DX + 8.0f, DY + 8.0f, 0.7f, TEXT_SCALE, TEXT_SCALE, CLR_TEXT);
+        drawText("A:Yes  B:Cancel", DX + 8.0f, DY + 28.0f, 0.7f, TEXT_SCALE, TEXT_SCALE, CLR_HINT);
+    }
+
+    drawText("Up/Down:move  A:select  B:exit", TEXT_MARGIN_X, BOT_H - 16.0f, 0.5f, 0.42f, 0.42f,
+             CLR_HINT);
 }
 
 // --- パブリック関数 ---
@@ -880,6 +998,37 @@ void uiDraw(const AppState& state) {
     case Screen::BookmarkList:
         drawBookmarkList(state);
         break;
+    case Screen::ManageFeeds:
+        drawManageFeeds(state);
+        break;
+    }
+}
+
+static void handleAddFeedSwkbd(AppState& state, bool applyImmediately) {
+    SwkbdState swkbd;
+    char url[256] = {};
+    swkbdInit(&swkbd, SWKBD_TYPE_NORMAL, 2, 255);
+    swkbdSetHintText(&swkbd, "https://example.com/feed.rss");
+    SwkbdButton btn = swkbdInputText(&swkbd, url, sizeof(url));
+    if (btn != SWKBD_BUTTON_CONFIRM || url[0] == '\0')
+        return;
+    if (strncmp(url, "http://", 7) != 0 && strncmp(url, "https://", 8) != 0) {
+        state.statusMsg = "Invalid URL (needs http:// or https://)";
+        return;
+    }
+    FeedConfig cfg;
+    cfg.url = url;
+    cfg.name = url;
+    cfg.fetch_full_text = false;
+    if (applyImmediately) {
+        state.feedConfigs.push_back(cfg);
+        state.feeds.emplace_back();
+        state.feedLoaded.push_back(false);
+        if (!saveFeedConfig("sdmc:/3ds/rssreader/feeds.json", state.feedConfigs))
+            state.statusMsg = "Save failed.";
+    } else {
+        state.manageFeedsEditing.push_back(cfg);
+        state.manageFeedsDirty = true;
     }
 }
 
@@ -890,20 +1039,104 @@ void uiHandleInput(AppState& state, u32 kDown, u32 kHeld, u32 kRepeat) {
     switch (state.currentScreen) {
     case Screen::FeedList: {
         int feedCount = (int)state.feedConfigs.size();
-        int total = feedCount + 2; // +1 for Bookmarks, +1 for Settings
+        int total = feedCount + 3; // Bookmarks, Add Feed, Settings
+
+        // ポップアップ中は通常入力を処理しない
+        if (state.feedListPopup == FeedListPopup::Menu) {
+            if ((kRepeat & KEY_UP) && state.feedListPopupMenuSel > 0)
+                --state.feedListPopupMenuSel;
+            if ((kRepeat & KEY_DOWN) && state.feedListPopupMenuSel < 1)
+                ++state.feedListPopupMenuSel;
+            if (kDown & KEY_A) {
+                if (state.feedListPopupMenuSel == 0) {
+                    state.feedListPopup = FeedListPopup::Move;
+                    state.feedListMoveInsertPos = state.feedListPopupTarget;
+                } else {
+                    state.feedListPopup = FeedListPopup::DeleteConfirm;
+                }
+                kDown &= ~KEY_A;
+            }
+            if (kDown & KEY_B) {
+                state.feedListPopup = FeedListPopup::None;
+                kDown &= ~KEY_B;
+            }
+            break;
+        }
+
+        if (state.feedListPopup == FeedListPopup::Move) {
+            int n = feedCount;
+            if (kRepeat & KEY_UP)
+                state.feedListMoveInsertPos = (state.feedListMoveInsertPos - 1 + n + 1) % (n + 1);
+            if (kRepeat & KEY_DOWN)
+                state.feedListMoveInsertPos = (state.feedListMoveInsertPos + 1) % (n + 1);
+            if (kDown & KEY_A) {
+                int src = state.feedListPopupTarget;
+                int dst = state.feedListMoveInsertPos;
+                FeedConfig moving = state.feedConfigs[src];
+                state.feedConfigs.erase(state.feedConfigs.begin() + src);
+                int actualDst = (dst > src) ? dst - 1 : dst;
+                state.feedConfigs.insert(state.feedConfigs.begin() + actualDst, moving);
+                // feeds / feedLoaded も同順にシャッフル
+                Feed movingFeed = std::move(state.feeds[src]);
+                bool movingLoaded = state.feedLoaded[src];
+                state.feeds.erase(state.feeds.begin() + src);
+                state.feedLoaded.erase(state.feedLoaded.begin() + src);
+                state.feeds.insert(state.feeds.begin() + actualDst, std::move(movingFeed));
+                state.feedLoaded.insert(state.feedLoaded.begin() + actualDst, movingLoaded);
+                state.selectedFeed = actualDst;
+                if (!saveFeedConfig("sdmc:/3ds/rssreader/feeds.json", state.feedConfigs))
+                    state.statusMsg = "Save failed.";
+                state.feedListPopup = FeedListPopup::None;
+                kDown &= ~KEY_A;
+            }
+            if (kDown & KEY_B) {
+                state.feedListPopup = FeedListPopup::None;
+                kDown &= ~KEY_B;
+            }
+            break;
+        }
+
+        if (state.feedListPopup == FeedListPopup::DeleteConfirm) {
+            if (kDown & KEY_A) {
+                int idx = state.feedListPopupTarget;
+                if (idx >= 0 && idx < (int)state.feedConfigs.size()) {
+                    state.feedConfigs.erase(state.feedConfigs.begin() + idx);
+                    state.feeds.erase(state.feeds.begin() + idx);
+                    state.feedLoaded.erase(state.feedLoaded.begin() + idx);
+                    int newFeedCount = (int)state.feedConfigs.size();
+                    if (state.selectedFeed > newFeedCount)
+                        state.selectedFeed = newFeedCount; // Bookmarks 行に移動
+                    if (!saveFeedConfig("sdmc:/3ds/rssreader/feeds.json", state.feedConfigs))
+                        state.statusMsg = "Save failed.";
+                }
+                state.feedListPopup = FeedListPopup::None;
+                kDown &= ~KEY_A;
+            }
+            if (kDown & KEY_B) {
+                state.feedListPopup = FeedListPopup::None;
+                kDown &= ~KEY_B;
+            }
+            break;
+        }
+
+        // 通常入力
         if ((kRepeat & KEY_DOWN) && state.selectedFeed < total - 1)
             ++state.selectedFeed;
         if ((kRepeat & KEY_UP) && state.selectedFeed > 0)
             --state.selectedFeed;
-        if ((kDown & KEY_A) && total > 0) {
-            if (state.selectedFeed == feedCount + 1) {
-                // Settings エントリ
+
+        if (kDown & KEY_A) {
+            if (state.selectedFeed == feedCount + 2) {
+                // Settings
                 state.currentScreen = Screen::Settings;
                 state.settingsSelectedItem = 0;
-            } else if (state.selectedFeed == feedCount) {
-                // Bookmarks エントリ
+            } else if (state.selectedFeed == feedCount + 1) {
+                // Bookmarks
                 state.selectedBookmark = 0;
                 state.currentScreen = Screen::BookmarkList;
+            } else if (state.selectedFeed == feedCount) {
+                // Add Feed: Swkbd
+                handleAddFeedSwkbd(state, true);
             } else {
                 // 実フィードを開く
                 const FeedConfig& cfg = state.feedConfigs[state.selectedFeed];
@@ -914,6 +1147,15 @@ void uiHandleInput(AppState& state, u32 kDown, u32 kHeld, u32 kRepeat) {
             }
             kDown &= ~KEY_A; // coding-patterns #6
         }
+
+        // SELECT: フィード行のみポップアップ
+        if ((kDown & KEY_SELECT) && state.selectedFeed < feedCount) {
+            state.feedListPopup = FeedListPopup::Menu;
+            state.feedListPopupMenuSel = 0;
+            state.feedListPopupTarget = state.selectedFeed;
+            kDown &= ~KEY_SELECT;
+        }
+
         if (kDown & KEY_Y) {
             for (size_t i = 0; i < state.feedLoaded.size(); ++i)
                 state.feedLoaded[i] = false;
@@ -963,7 +1205,7 @@ void uiHandleInput(AppState& state, u32 kDown, u32 kHeld, u32 kRepeat) {
         }
         if ((kDown & KEY_A) && total > 0) {
             kDown &= ~KEY_A; // coding-patterns #6
-            Article& art = state.feeds[idx].articles[state.selectedArticle];
+            const Article& art = state.feeds[idx].articles[state.selectedArticle];
             state.readHistory.markRead(ReadHistory::keyFor(art.link, art.title));
             if ((int)art.content.size() < CONTENT_SHORT_THRESHOLD && !art.link.empty()) {
                 state.pendingFetchFeed = idx;
@@ -1007,10 +1249,10 @@ void uiHandleInput(AppState& state, u32 kDown, u32 kHeld, u32 kRepeat) {
     case Screen::Settings: {
         if ((kRepeat & KEY_UP) && state.settingsSelectedItem > 0)
             --state.settingsSelectedItem;
-        if ((kRepeat & KEY_DOWN) && state.settingsSelectedItem < 2)
+        if ((kRepeat & KEY_DOWN) && state.settingsSelectedItem < 3)
             ++state.settingsSelectedItem;
 
-        // 値変更（Save 行では無効）
+        // 値変更（インデックス 0, 1 のみ）
         if (state.settingsSelectedItem == 0) {
             int idx =
                 findIndex(SCROLL_DELAY_OPTIONS, NUM_DELAY_OPTS, state.settings.scrollRepeatDelayMs);
@@ -1027,10 +1269,20 @@ void uiHandleInput(AppState& state, u32 kDown, u32 kHeld, u32 kRepeat) {
                 state.settings.scrollRepeatIntervalMs = SCROLL_INTERVAL_OPTIONS[idx - 1];
         }
 
-        // A (Save 行) → 保存して戻る
-        if ((kDown & KEY_A) && state.settingsSelectedItem == 2) {
-            settingsSave(state.settings);
-            state.currentScreen = Screen::FeedList;
+        if (kDown & KEY_A) {
+            if (state.settingsSelectedItem == 3) {
+                // Save
+                settingsSave(state.settings);
+                state.currentScreen = Screen::FeedList;
+            } else if (state.settingsSelectedItem == 2) {
+                // Manage Feeds
+                state.manageFeedsEditing = state.feedConfigs;
+                state.manageFeedsSelected = 0;
+                state.manageFeedsDirty = false;
+                state.manageFeedsPopup = ManageFeedsPopup::None;
+                state.statusMsg = "";
+                state.currentScreen = Screen::ManageFeeds;
+            }
             kDown &= ~KEY_A;
         }
         // B → 保存せずに戻る
@@ -1181,6 +1433,138 @@ void uiHandleInput(AppState& state, u32 kDown, u32 kHeld, u32 kRepeat) {
         }
         if (kDown & KEY_B) {
             state.currentScreen = Screen::FeedList;
+            kDown &= ~KEY_B;
+        }
+        break;
+    }
+    case Screen::ManageFeeds: {
+        int M = (int)state.manageFeedsEditing.size();
+        int listTotal = M + 3; // Add Feed, Save, Exit
+
+        if (state.manageFeedsPopup == ManageFeedsPopup::DiscardConfirm) {
+            if (kDown & KEY_A) {
+                state.manageFeedsPopup = ManageFeedsPopup::None;
+                state.statusMsg = "";
+                state.currentScreen = Screen::Settings;
+                kDown &= ~KEY_A;
+            }
+            if (kDown & KEY_B) {
+                state.manageFeedsPopup = ManageFeedsPopup::None;
+                kDown &= ~KEY_B;
+            }
+            break;
+        }
+
+        if (state.manageFeedsPopup == ManageFeedsPopup::Menu) {
+            if ((kRepeat & KEY_UP) && state.manageFeedsPopupMenuSel > 0)
+                --state.manageFeedsPopupMenuSel;
+            if ((kRepeat & KEY_DOWN) && state.manageFeedsPopupMenuSel < 1)
+                ++state.manageFeedsPopupMenuSel;
+            if (kDown & KEY_A) {
+                if (state.manageFeedsPopupMenuSel == 0) {
+                    state.manageFeedsPopup = ManageFeedsPopup::Move;
+                    state.manageFeedsMoveInsertPos = state.manageFeedsPopupTarget;
+                } else {
+                    state.manageFeedsPopup = ManageFeedsPopup::DeleteConfirm;
+                }
+                kDown &= ~KEY_A;
+            }
+            if (kDown & KEY_B) {
+                state.manageFeedsPopup = ManageFeedsPopup::None;
+                kDown &= ~KEY_B;
+            }
+            break;
+        }
+
+        if (state.manageFeedsPopup == ManageFeedsPopup::Move) {
+            int n = M;
+            if (kRepeat & KEY_UP)
+                state.manageFeedsMoveInsertPos =
+                    (state.manageFeedsMoveInsertPos - 1 + n + 1) % (n + 1);
+            if (kRepeat & KEY_DOWN)
+                state.manageFeedsMoveInsertPos = (state.manageFeedsMoveInsertPos + 1) % (n + 1);
+            if (kDown & KEY_A) {
+                int src = state.manageFeedsPopupTarget;
+                int dst = state.manageFeedsMoveInsertPos;
+                FeedConfig moving = state.manageFeedsEditing[src];
+                state.manageFeedsEditing.erase(state.manageFeedsEditing.begin() + src);
+                int actualDst = (dst > src) ? dst - 1 : dst;
+                state.manageFeedsEditing.insert(state.manageFeedsEditing.begin() + actualDst,
+                                                moving);
+                state.manageFeedsSelected = actualDst + 1; // +1 = Add Feed が先頭なので
+                state.manageFeedsDirty = true;
+                state.manageFeedsPopup = ManageFeedsPopup::None;
+                kDown &= ~KEY_A;
+            }
+            if (kDown & KEY_B) {
+                state.manageFeedsPopup = ManageFeedsPopup::None;
+                kDown &= ~KEY_B;
+            }
+            break;
+        }
+
+        if (state.manageFeedsPopup == ManageFeedsPopup::DeleteConfirm) {
+            if (kDown & KEY_A) {
+                int idx = state.manageFeedsPopupTarget;
+                if (idx >= 0 && idx < (int)state.manageFeedsEditing.size()) {
+                    state.manageFeedsEditing.erase(state.manageFeedsEditing.begin() + idx);
+                    int newM = (int)state.manageFeedsEditing.size();
+                    if (state.manageFeedsSelected > newM + 1)
+                        state.manageFeedsSelected = newM + 1; // Save 行に移動
+                    state.manageFeedsDirty = true;
+                }
+                state.manageFeedsPopup = ManageFeedsPopup::None;
+                kDown &= ~KEY_A;
+            }
+            if (kDown & KEY_B) {
+                state.manageFeedsPopup = ManageFeedsPopup::None;
+                kDown &= ~KEY_B;
+            }
+            break;
+        }
+
+        // 通常入力: 0=[Add Feed], 1..M=フィード, M+1=Save, M+2=Exit
+        if ((kRepeat & KEY_UP) && state.manageFeedsSelected > 0)
+            --state.manageFeedsSelected;
+        if ((kRepeat & KEY_DOWN) && state.manageFeedsSelected < listTotal - 1)
+            ++state.manageFeedsSelected;
+
+        if (kDown & KEY_A) {
+            int sel = state.manageFeedsSelected;
+            if (sel == 0) {
+                // Add Feed
+                handleAddFeedSwkbd(state, false);
+            } else if (sel <= M) {
+                // フィード行 → ポップアップ (editing インデックス = sel - 1)
+                state.manageFeedsPopup = ManageFeedsPopup::Menu;
+                state.manageFeedsPopupMenuSel = 0;
+                state.manageFeedsPopupTarget = sel - 1;
+            } else if (sel == M + 1) {
+                // Save
+                state.feedConfigs = state.manageFeedsEditing;
+                state.feeds.resize(state.feedConfigs.size());
+                state.feedLoaded.assign(state.feedConfigs.size(), false);
+                if (!saveFeedConfig("sdmc:/3ds/rssreader/feeds.json", state.feedConfigs)) {
+                    state.statusMsg = "Save failed.";
+                } else {
+                    state.manageFeedsDirty = false;
+                    state.currentScreen = Screen::Settings;
+                }
+            } else {
+                // Exit
+                if (state.manageFeedsDirty)
+                    state.manageFeedsPopup = ManageFeedsPopup::DiscardConfirm;
+                else
+                    state.currentScreen = Screen::Settings;
+            }
+            kDown &= ~KEY_A;
+        }
+
+        if (kDown & KEY_B) {
+            if (state.manageFeedsDirty)
+                state.manageFeedsPopup = ManageFeedsPopup::DiscardConfirm;
+            else
+                state.currentScreen = Screen::Settings;
             kDown &= ~KEY_B;
         }
         break;
