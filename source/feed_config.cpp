@@ -2,6 +2,7 @@
 #include "feed_config.h"
 #include "json.hpp"
 #include <cstdio>
+#include <sys/stat.h>
 
 std::vector<FeedConfig> loadFeedConfig(const std::string& path) {
     std::vector<FeedConfig> configs;
@@ -40,4 +41,24 @@ std::vector<FeedConfig> loadFeedConfig(const std::string& path) {
         configs.push_back(std::move(cfg));
     }
     return configs;
+}
+
+bool saveFeedConfig(const std::string& path, const std::vector<FeedConfig>& configs) {
+    mkdir("sdmc:/3ds", 0777);
+    mkdir("sdmc:/3ds/rssreader", 0777);
+
+    FILE* fp = fopen(path.c_str(), "w");
+    if (!fp)
+        return false;
+
+    fprintf(fp, "{\n  \"feeds\": [\n");
+    for (int i = 0; i < (int)configs.size(); ++i) {
+        const auto& c = configs[i];
+        fprintf(fp, "    {\"url\": \"%s\", \"name\": \"%s\", \"fetch_full_text\": %s}%s\n",
+                c.url.c_str(), c.name.c_str(), c.fetch_full_text ? "true" : "false",
+                i + 1 < (int)configs.size() ? "," : "");
+    }
+    fprintf(fp, "  ]\n}\n");
+    fclose(fp);
+    return true;
 }
