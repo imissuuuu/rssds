@@ -1159,9 +1159,8 @@ void uiHandleInput(AppState& state, u32 kDown, u32 kHeld, u32 kRepeat) {
         if (kDown & KEY_Y) {
             for (size_t i = 0; i < state.feedLoaded.size(); ++i)
                 state.feedLoaded[i] = false;
-            state.refreshIdx = 0;
-            state.statusMsg = "Refreshing...";
             state.currentScreen = Screen::LoadingAll;
+            state.refreshAllLoader.start(state.feedConfigs);
             kDown &= ~KEY_Y;
         }
         break;
