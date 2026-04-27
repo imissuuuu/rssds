@@ -6,6 +6,7 @@
 #include "image_cache.h"
 #include "image_loader.h"
 #include "read_history.h"
+#include "refresh_all_loader.h"
 #include "rss.h"
 #include "settings.h"
 #include <3ds.h>
@@ -51,7 +52,6 @@ struct AppState {
     int selectedArticle = 0;
     int scrollY = 0;
     int articleListScrollX = 0;
-    int refreshIdx = 0; // 記事一覧: 選択タイトルの水平スクロール量(px)
     std::string statusMsg;
 
     AppSettings settings;
@@ -86,9 +86,12 @@ struct AppState {
     bool pendingFetchFullArticle = false;
     Screen pendingReturnScreen = Screen::ArticleList;
 
-    // フィード非同期ロード
+    // フィード非同期ロード（単一）
     mutable FeedLoader feedLoader;
     bool feedJobSubmitted = false;
+
+    // 全フィード並列リフレッシュ
+    mutable RefreshAllLoader refreshAllLoader;
 
     // 既読管理
     ReadHistory readHistory;

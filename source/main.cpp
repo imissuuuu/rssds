@@ -167,31 +167,44 @@ int main() {
             continue;
         }
 
-        // LoadingAll 状態: 全フィードを順番にリフレッシュ
+        // LoadingAll 状態: 全フィード並列フェッチ完了待ち
         if (state.currentScreen == Screen::LoadingAll) {
-            int idx = state.refreshIdx;
-            if (!netOk || idx >= (int)state.feedConfigs.size()) {
+            if (!netOk || state.feedConfigs.empty()) {
+                state.refreshAllLoader.stop();
                 state.statusMsg = netOk ? "" : "Network unavailable.";
                 state.currentScreen = Screen::FeedList;
-            } else {
-                const std::string& name = state.feedConfigs[idx].name;
-                char buf[128];
-                snprintf(buf, sizeof(buf), "Refreshing %d/%d: %s", idx + 1,
-                         (int)state.feedConfigs.size(),
-                         name.empty() ? state.feedConfigs[idx].url.c_str() : name.c_str());
-                state.statusMsg = buf;
                 C3D_FrameBegin(C3D_FRAME_SYNCDRAW);
                 uiDraw(state);
                 C3D_FrameEnd(0);
+                continue;
+            }
 
-                std::string errMsg;
-                std::string xml = httpGet(state.feedConfigs[idx].url, errMsg);
-                if (!xml.empty()) {
-                    state.feeds[idx] = parseFeed(xml, errMsg);
+            if (kDown & KEY_B) {
+                state.refreshAllLoader.cancel();
+                kDown &= ~KEY_B;
+            }
+
+            RefreshAllResult res;
+            while (state.refreshAllLoader.poll(res)) {
+                int idx = res.idx;
+                if (idx >= 0 && idx < (int)state.feeds.size() && res.errMsg.empty()) {
+                    state.feeds[idx] = std::move(res.feed);
                     state.feedLoaded[idx] = true;
                 }
-                ++state.refreshIdx;
             }
+
+            int done = state.refreshAllLoader.completedCount();
+            int total = state.refreshAllLoader.totalCount();
+            char buf[64];
+            snprintf(buf, sizeof(buf), "Refreshing %d/%d", done, total);
+            state.statusMsg = buf;
+
+            if (state.refreshAllLoader.tick()) {
+                state.refreshAllLoader.stop();
+                state.statusMsg = "";
+                state.currentScreen = Screen::FeedList;
+            }
+
             C3D_FrameBegin(C3D_FRAME_SYNCDRAW);
             uiDraw(state);
             C3D_FrameEnd(0);
