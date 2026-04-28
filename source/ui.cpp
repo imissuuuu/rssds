@@ -37,6 +37,8 @@ static constexpr int IMG_INLINE_LINES = 12; // IMG_INLINE_H / LINE_HEIGHT
 static constexpr int TOP_WRAP_PX = 388;
 static constexpr int BOT_WRAP_PX = 308;
 static constexpr float HEADING_SCALE_FACTOR = 1.3f;
+static constexpr float DATE_COL_W = 44.0f;
+static constexpr int ARTICLE_WRAP_PX = BOT_WRAP_PX - (int)DATE_COL_W; // 264px
 
 // 記事一覧タイトルの水平スクロール刻み幅(px)
 // 将来: AppConfig::title_scroll_step に置き換え可能なよう1箇所に集約
@@ -461,7 +463,28 @@ static void drawFeedList(const AppState& state) {
 
         u32 clr = CLR_TEXT;
         if (i < feedCount) {
-            snprintf(label, sizeof(label), "%s", state.feedConfigs[i].name.c_str());
+            // 未読件数カウント（フィード未ロード時は 0）
+            int unread = 0;
+            if (i < (int)state.feeds.size()) {
+                for (const auto& art : state.feeds[i].articles) {
+                    if (!state.readHistory.isRead(ReadHistory::keyFor(art.link, art.title)))
+                        unread++;
+                }
+            }
+            char badge[16] = {};
+            float badgeW = 0.0f;
+            if (unread > 0) {
+                snprintf(badge, sizeof(badge), "(%d)", unread);
+                badgeW = measureStr(badge, TEXT_SCALE) + 4.0f;
+            }
+            // バッジ分だけタイトルを短縮
+            std::string name = state.feedConfigs[i].name;
+            if (badgeW > 0.0f)
+                trimToWidth(name, BOT_WRAP_PX - (int)badgeW, TEXT_SCALE);
+            snprintf(label, sizeof(label), "%s", name.c_str());
+            if (unread > 0)
+                drawText(badge, BOT_W - TEXT_MARGIN_X - badgeW + 4.0f, y, 0.5f, TEXT_SCALE,
+                         TEXT_SCALE, CLR_TITLE);
             // Move モード中: 移動元をグレーアウト
             if (state.feedListPopup == FeedListPopup::Move && i == state.feedListPopupTarget)
                 clr = CLR_HINT;
@@ -506,6 +529,38 @@ static void drawFeedList(const AppState& state) {
              BOT_H - 16.0f, 0.5f, 0.42f, 0.42f, CLR_HINT);
 }
 
+static std::string formatPubDate(const std::string& s) {
+    if (s.empty())
+        return "";
+    static const char* MON[] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                                "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
+    // ISO 8601: "YYYY-MM-DD..."
+    if (s.size() >= 10 && s[4] == '-' && s[7] == '-') {
+        int m = 0, d = 0;
+        if (sscanf(s.c_str() + 5, "%d-%d", &m, &d) == 2 && m >= 1 && m <= 12) {
+            char buf[12];
+            snprintf(buf, sizeof(buf), "%s %d", MON[m - 1], d);
+            return buf;
+        }
+    }
+    // RFC 822: "Mon, 12 Jan 2026 ..." or "12 Jan 2026 ..."
+    const char* p = s.c_str();
+    const char* comma = strchr(p, ',');
+    if (comma)
+        p = comma + 1;
+    while (*p == ' ')
+        p++;
+    int d = 0;
+    char mon[8] = {};
+    if (sscanf(p, "%d %7s", &d, mon) == 2 && d >= 1 && d <= 31) {
+        mon[3] = '\0';
+        char buf[12];
+        snprintf(buf, sizeof(buf), "%s %d", mon, d);
+        return buf;
+    }
+    return "";
+}
+
 static void drawArticleList(const AppState& state) {
     int idx = state.selectedFeed;
     const Feed& feed = state.feeds[idx];
@@ -546,22 +601,37 @@ static void drawArticleList(const AppState& state) {
         // ★ プレフィックス（ブックマーク済み）
         std::string displayTitle = isBm ? std::string("\xe2\x98\x85 ") + fullTitle : fullTitle;
 
+        std::string dateStr = formatPubDate(article.pubDate);
+        float dateW = dateStr.empty() ? 0.0f : measureStr(dateStr.c_str(), TEXT_SCALE);
+        int titleWrap = dateStr.empty() ? BOT_WRAP_PX : ARTICLE_WRAP_PX;
+
         if (i == state.selectedArticle) {
-            // 選択行: 生タイトルを描画し、水平スクロールを適用。
-            // タイトル末尾が右端に到達したところで止まる（タイトル全体が見える）。
+            // 選択行: 水平スクロール。日付列幅分スクロール幅を縮める。
             float textW = measureStr(displayTitle.c_str(), TEXT_SCALE);
-            float displayW = (float)BOT_WRAP_PX;
+            float displayW = (float)titleWrap;
             float maxScroll = (textW > displayW) ? (textW - displayW) : 0.0f;
             float effScroll = (float)state.articleListScrollX;
             if (effScroll > maxScroll)
                 effScroll = maxScroll;
             drawText(displayTitle.c_str(), TEXT_MARGIN_X - effScroll, y, 0.5f, TEXT_SCALE,
                      TEXT_SCALE, textClr);
+            if (!dateStr.empty()) {
+                // タイトルが日付エリアに滲み出た分をオーバードロー
+                float dateAreaX = (float)BOT_W - DATE_COL_W - 2.0f;
+                C2D_DrawRectSolid(dateAreaX, y - 1.0f, 0.5f, BOT_W - dateAreaX, LINE_HEIGHT + 1.0f,
+                                  CLR_SEL_BG);
+                drawText(dateStr.c_str(), BOT_W - TEXT_MARGIN_X - dateW, y, 0.5f, TEXT_SCALE,
+                         TEXT_SCALE, CLR_HINT);
+            }
         } else {
-            // 非選択行: 先頭の1行のみを表示
-            auto lw = wrapText(displayTitle, BOT_WRAP_PX);
+            // 非選択行: 先頭の1行のみ表示
+            auto lw = wrapText(displayTitle, titleWrap);
             std::string label = lw.empty() ? "" : lw.front();
             drawText(label.c_str(), TEXT_MARGIN_X, y, 0.5f, TEXT_SCALE, TEXT_SCALE, textClr);
+            if (!dateStr.empty()) {
+                drawText(dateStr.c_str(), BOT_W - TEXT_MARGIN_X - dateW, y, 0.5f, TEXT_SCALE,
+                         TEXT_SCALE, CLR_HINT);
+            }
         }
     }
 
