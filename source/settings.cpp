@@ -46,6 +46,8 @@ bool settingsLoad(AppSettings& out) {
         out.scrollRepeatDelayMs = val;
     if (parseJsonInt(buf, "scroll_repeat_interval_ms", val))
         out.scrollRepeatIntervalMs = val;
+    if (parseJsonInt(buf, "theme", val))
+        out.theme = val;
 
     // バリデーション: 想定外の値はデフォルト値に戻す
     static const int VALID_DELAYS[] = {200, 300, 400, 500};
@@ -60,6 +62,8 @@ bool settingsLoad(AppSettings& out) {
         out.scrollRepeatDelayMs = AppSettings{}.scrollRepeatDelayMs;
     if (!inList(out.scrollRepeatIntervalMs, VALID_INTERVALS, 4))
         out.scrollRepeatIntervalMs = AppSettings{}.scrollRepeatIntervalMs;
+    if (out.theme != 0 && out.theme != 1)
+        out.theme = 0;
 
     return true;
 }
@@ -74,7 +78,8 @@ bool settingsSave(const AppSettings& cfg) {
 
     fprintf(f, "{\n");
     fprintf(f, "  \"scroll_repeat_delay_ms\": %d,\n", cfg.scrollRepeatDelayMs);
-    fprintf(f, "  \"scroll_repeat_interval_ms\": %d\n", cfg.scrollRepeatIntervalMs);
+    fprintf(f, "  \"scroll_repeat_interval_ms\": %d,\n", cfg.scrollRepeatIntervalMs);
+    fprintf(f, "  \"theme\": %d\n", cfg.theme);
     fprintf(f, "}\n");
 
     fclose(f);
