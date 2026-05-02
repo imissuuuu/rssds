@@ -13,6 +13,21 @@
 #include <string>
 #include <vector>
 
+struct ThemeColors {
+    u32 bg;
+    u32 panel;
+    u32 text;
+    u32 secondary;
+    u32 muted;
+    u32 accent;
+    u32 selBg;
+    u32 border;
+    u32 error;
+};
+
+extern const ThemeColors THEME_LIGHT;
+extern const ThemeColors THEME_DARK;
+
 enum class Screen {
     FeedList,
     Loading,
@@ -55,6 +70,7 @@ struct AppState {
     std::string statusMsg;
 
     AppSettings settings;
+    const ThemeColors* theme = nullptr;
     int settingsSelectedItem = 0;
 
     // ArticleView 描画キャッシュ（毎フレームの parseContentLines 再計算を防ぐ）

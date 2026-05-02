@@ -98,6 +98,7 @@ int main() {
     state.feedLoaded.resize(state.feedConfigs.size(), false);
 
     settingsLoad(state.settings);
+    state.theme = (state.settings.theme == 1) ? &THEME_DARK : &THEME_LIGHT;
     state.readHistory.load();
     state.bookmarkStore.load();
     state.imgViewLoader.setMaxDim(1024);

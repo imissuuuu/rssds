@@ -20,17 +20,17 @@ static constexpr int BOT_H = 240;
 
 // テキスト設定
 static constexpr float TEXT_SCALE = 0.5f;
-static constexpr float LINE_HEIGHT = 16.0f;
+static constexpr float LINE_HEIGHT = 20.0f;
 static constexpr float TEXT_MARGIN_X = 6.0f;
 static constexpr float TEXT_MARGIN_Y = 6.0f;
 
 // ステータスバー
-static constexpr float STATUSBAR_H = 14.0f;
-static constexpr float TOP_CONTENT_Y = STATUSBAR_H + TEXT_MARGIN_Y; // 20.0f
+static constexpr float STATUSBAR_H = 18.0f;
+static constexpr float TOP_CONTENT_Y = STATUSBAR_H + TEXT_MARGIN_Y;
 
-// インライン画像（LINE_HEIGHT=16 の整数倍）
-static constexpr int IMG_INLINE_H = 192;
-static constexpr int IMG_INLINE_LINES = 12; // IMG_INLINE_H / LINE_HEIGHT
+// インライン画像（LINE_HEIGHT=20 の整数倍）
+static constexpr int IMG_INLINE_H = 200;
+static constexpr int IMG_INLINE_LINES = 10; // IMG_INLINE_H / LINE_HEIGHT
 
 // テキスト折り返し用ピクセル幅
 // wrapText の高速推定用。citro2d による実幅検証で最終的に正確にトリムされる
@@ -47,14 +47,30 @@ static constexpr int TITLE_SCROLL_STEP_PX = 50;
 static constexpr int TOP_MAX_LINES = (int)((TOP_H - STATUSBAR_H - TEXT_MARGIN_Y * 2) / LINE_HEIGHT);
 static constexpr int BOT_MAX_LINES = (int)((BOT_H - 30.0f) / LINE_HEIGHT); // 30px は下部ガイド
 
-// カラー
-static constexpr u32 CLR_BG = C2D_Color32(0x1a, 0x1a, 0x2e, 0xFF);
-static constexpr u32 CLR_PANEL = C2D_Color32(0x16, 0x21, 0x3e, 0xFF);
-static constexpr u32 CLR_TEXT = C2D_Color32(0xFF, 0xFF, 0xFF, 0xFF);
-static constexpr u32 CLR_SEL_BG = C2D_Color32(0x0f, 0x3d, 0x60, 0xFF);
-static constexpr u32 CLR_HINT = C2D_Color32(0xA0, 0xA0, 0xA0, 0xFF);
-static constexpr u32 CLR_TITLE = C2D_Color32(0x5c, 0xd4, 0xff, 0xFF);
-static constexpr u32 CLR_ERROR = C2D_Color32(0xFF, 0x80, 0x80, 0xFF);
+// カラーテーマ
+const ThemeColors THEME_LIGHT = {
+    C2D_Color32(0xFF, 0xFF, 0xFF, 0xFF), // bg
+    C2D_Color32(0xF6, 0xF5, 0xF4, 0xFF), // panel
+    C2D_Color32(0x0D, 0x0D, 0x0D, 0xFF), // text
+    C2D_Color32(0x61, 0x5D, 0x59, 0xFF), // secondary
+    C2D_Color32(0xA3, 0x9E, 0x98, 0xFF), // muted
+    C2D_Color32(0xD9, 0x77, 0x06, 0xFF), // accent (Amber)
+    C2D_Color32(0xDC, 0xD7, 0xCF, 0xFF), // selBg
+    C2D_Color32(0xE5, 0xE5, 0xE3, 0xFF), // border
+    C2D_Color32(0xCC, 0x33, 0x33, 0xFF), // error
+};
+
+const ThemeColors THEME_DARK = {
+    C2D_Color32(0x31, 0x30, 0x2E, 0xFF), // bg
+    C2D_Color32(0x2A, 0x29, 0x27, 0xFF), // panel
+    C2D_Color32(0xF0, 0xEF, 0xEC, 0xFF), // text
+    C2D_Color32(0xB5, 0xB0, 0xAB, 0xFF), // secondary
+    C2D_Color32(0xA3, 0x9E, 0x98, 0xFF), // muted
+    C2D_Color32(0xF5, 0x9E, 0x0B, 0xFF), // accent (Amber)
+    C2D_Color32(0x3A, 0x38, 0x35, 0xFF), // selBg
+    C2D_Color32(0x3E, 0x3C, 0x3A, 0xFF), // border
+    C2D_Color32(0xFF, 0x80, 0x80, 0xFF), // error
+};
 
 static C3D_RenderTarget* topTarget = nullptr;
 static C3D_RenderTarget* botTarget = nullptr;
@@ -76,13 +92,13 @@ struct StyleParams {
     u32 color;
 };
 
-static StyleParams resolveStyle(TextStyle style) {
+static StyleParams resolveStyle(TextStyle style, const ThemeColors& theme) {
     switch (style) {
     case TextStyle::Heading:
-        return {TEXT_SCALE * 1.3f, CLR_TITLE};
+        return {TEXT_SCALE * 1.3f, theme.accent};
     case TextStyle::Body:
     default:
-        return {TEXT_SCALE, CLR_TEXT};
+        return {TEXT_SCALE, theme.text};
     }
 }
 
@@ -178,8 +194,9 @@ static void drawText(const char* str, float x, float y, float z, float sx, float
     }
 }
 
-static void drawStyledText(const char* str, float x, float y, float z, TextStyle style) {
-    StyleParams p = resolveStyle(style);
+static void drawStyledText(const char* str, float x, float y, float z, TextStyle style,
+                           const ThemeColors& theme) {
+    StyleParams p = resolveStyle(style, theme);
     drawText(str, x, y, z, p.scale, p.scale, p.color);
 }
 
@@ -344,7 +361,7 @@ static int findIndex(const int* arr, int n, int val) {
 
 // --- ステータスバー ---
 
-static void drawStatusBar() {
+static void drawStatusBar(const ThemeColors& theme) {
     // バッテリー・WiFi: 5秒ごとに更新
     u64 now = osGetTime();
     if (now - s_statusLastMs > 5000) {
@@ -356,7 +373,7 @@ static void drawStatusBar() {
 
     // 現在時刻
     time_t t = time(nullptr);
-    struct tm* tm_info = localtime(&t);
+    const struct tm* tm_info = localtime(&t);
     char timeBuf[8];
     snprintf(timeBuf, sizeof(timeBuf), "%02d:%02d", tm_info->tm_hour, tm_info->tm_min);
 
@@ -382,27 +399,27 @@ static void drawStatusBar() {
     snprintf(rightBuf, sizeof(rightBuf), "%s %s", WIFI_BARS[wifiIdx], battBuf);
 
     // 背景帯
-    C2D_DrawRectSolid(0, 0, 0.5f, TOP_W, STATUSBAR_H, CLR_PANEL);
+    C2D_DrawRectSolid(0, 0, 0.5f, TOP_W, STATUSBAR_H, theme.panel);
 
     // 時刻（左端）
-    drawText(timeBuf, TEXT_MARGIN_X, 1.0f, 0.5f, 0.42f, 0.42f, CLR_HINT);
+    drawText(timeBuf, TEXT_MARGIN_X, 2.0f, 0.5f, 0.50f, 0.50f, theme.secondary);
 
     // WiFi + バッテリー（右端）
-    float rightW = measureStr(rightBuf, 0.42f);
-    drawText(rightBuf, TOP_W - rightW - TEXT_MARGIN_X, 1.0f, 0.5f, 0.42f, 0.42f, CLR_HINT);
+    float rightW = measureStr(rightBuf, 0.50f);
+    drawText(rightBuf, TOP_W - rightW - TEXT_MARGIN_X, 2.0f, 0.5f, 0.50f, 0.50f, theme.secondary);
 }
 
 // --- 各画面の描画 ---
 
-static void drawLoadingScreen(const AppState& state) {
-    C2D_TargetClear(topTarget, CLR_BG);
+static void drawLoadingScreen(const AppState& state, const ThemeColors& theme) {
+    C2D_TargetClear(topTarget, theme.bg);
     C2D_SceneBegin(topTarget);
-    drawStatusBar();
+    drawStatusBar(theme);
     drawText("Loading...", TEXT_MARGIN_X, TOP_H / 2.0f - 14.0f + STATUSBAR_H / 2.0f, 0.5f,
-             TEXT_SCALE * 1.2f, TEXT_SCALE * 1.2f, CLR_TITLE);
+             TEXT_SCALE * 1.2f, TEXT_SCALE * 1.2f, theme.accent);
     if (!state.statusMsg.empty()) {
         drawText(state.statusMsg.c_str(), TEXT_MARGIN_X, TOP_H / 2.0f + 4.0f + STATUSBAR_H / 2.0f,
-                 0.5f, TEXT_SCALE, TEXT_SCALE, CLR_HINT);
+                 0.5f, TEXT_SCALE, TEXT_SCALE, theme.muted);
     }
     float pct = 0.0f;
     if (state.currentScreen == Screen::LoadingArticle)
@@ -414,35 +431,34 @@ static void drawLoadingScreen(const AppState& state) {
         constexpr float BAR_H = 10.0f;
         constexpr float BAR_W = TOP_W - TEXT_MARGIN_X * 2.0f;
         float barY = TOP_H / 2.0f + 20.0f + STATUSBAR_H / 2.0f;
-        C2D_DrawRectSolid(TEXT_MARGIN_X, barY, 0.5f, BAR_W, BAR_H,
-                          C2D_Color32(0x40, 0x40, 0x60, 0xFF));
+        C2D_DrawRectSolid(TEXT_MARGIN_X, barY, 0.5f, BAR_W, BAR_H, theme.border);
         if (pct > 0.0f)
-            C2D_DrawRectSolid(TEXT_MARGIN_X, barY, 0.5f, BAR_W * pct, BAR_H, CLR_TITLE);
+            C2D_DrawRectSolid(TEXT_MARGIN_X, barY, 0.5f, BAR_W * pct, BAR_H, theme.accent);
         char pctBuf[20];
         snprintf(pctBuf, sizeof(pctBuf), "Loading... %d%%", (int)(pct * 100.0f));
         drawText(pctBuf, TEXT_MARGIN_X, barY + BAR_H + 3.0f, 0.5f, TEXT_SCALE, TEXT_SCALE,
-                 CLR_HINT);
+                 theme.muted);
     }
-    C2D_TargetClear(botTarget, CLR_PANEL);
+    C2D_TargetClear(botTarget, theme.panel);
     C2D_SceneBegin(botTarget);
 }
 
-static void drawFeedList(const AppState& state) {
+static void drawFeedList(const AppState& state, const ThemeColors& theme) {
     // 上画面: アプリタイトル
-    C2D_TargetClear(topTarget, CLR_BG);
+    C2D_TargetClear(topTarget, theme.bg);
     C2D_SceneBegin(topTarget);
-    drawStatusBar();
+    drawStatusBar(theme);
 
-    drawStyledText("3DS RSS Reader", TEXT_MARGIN_X, TOP_CONTENT_Y, 0.5f, TextStyle::Heading);
+    drawStyledText("3DS RSS Reader", TEXT_MARGIN_X, TOP_CONTENT_Y, 0.5f, TextStyle::Heading, theme);
     drawText("Select a feed on the bottom screen.", TEXT_MARGIN_X, 40.0f + STATUSBAR_H, 0.5f,
-             TEXT_SCALE, TEXT_SCALE, CLR_HINT);
+             TEXT_SCALE, TEXT_SCALE, theme.muted);
     if (!state.statusMsg.empty()) {
         drawText(state.statusMsg.c_str(), TEXT_MARGIN_X, 70.0f + STATUSBAR_H, 0.5f, TEXT_SCALE,
-                 TEXT_SCALE, CLR_ERROR);
+                 TEXT_SCALE, theme.error);
     }
 
     // 下画面: フィード一覧 + 固定エントリ (Bookmarks / Add Feed / Settings)
-    C2D_TargetClear(botTarget, CLR_PANEL);
+    C2D_TargetClear(botTarget, theme.panel);
     C2D_SceneBegin(botTarget);
 
     int feedCount = (int)state.feedConfigs.size();
@@ -459,9 +475,9 @@ static void drawFeedList(const AppState& state) {
     for (int i = start; i < total && (i - start) < BOT_MAX_LINES; ++i) {
         float y = TEXT_MARGIN_Y + (float)(i - start) * LINE_HEIGHT;
         if (i == state.selectedFeed)
-            C2D_DrawRectSolid(0, y - 1.0f, 0.0f, BOT_W, LINE_HEIGHT + 1.0f, CLR_SEL_BG);
+            C2D_DrawRectSolid(0, y - 1.0f, 0.0f, BOT_W, LINE_HEIGHT + 1.0f, theme.selBg);
 
-        u32 clr = CLR_TEXT;
+        u32 clr = theme.text;
         if (i < feedCount) {
             // 未読件数カウント（フィード未ロード時は 0）
             int unread = 0;
@@ -484,10 +500,10 @@ static void drawFeedList(const AppState& state) {
             snprintf(label, sizeof(label), "%s", name.c_str());
             if (unread > 0)
                 drawText(badge, BOT_W - TEXT_MARGIN_X - badgeW + 4.0f, y, 0.5f, TEXT_SCALE,
-                         TEXT_SCALE, CLR_TITLE);
+                         TEXT_SCALE, theme.accent);
             // Move モード中: 移動元をグレーアウト
             if (state.feedListPopup == FeedListPopup::Move && i == state.feedListPopupTarget)
-                clr = CLR_HINT;
+                clr = theme.muted;
         } else if (i == feedCount) {
             snprintf(label, sizeof(label), "[Add Feed]");
         } else if (i == feedCount + 1) {
@@ -503,30 +519,33 @@ static void drawFeedList(const AppState& state) {
         int pos = state.feedListMoveInsertPos; // 0..feedCount
         float lineY = TEXT_MARGIN_Y + (float)(pos - start) * LINE_HEIGHT - 1.0f;
         if (lineY >= TEXT_MARGIN_Y - LINE_HEIGHT && lineY < BOT_H - 30.0f)
-            C2D_DrawRectSolid(0, lineY, 0.6f, BOT_W, 2.0f, CLR_TITLE);
+            C2D_DrawRectSolid(0, lineY, 0.6f, BOT_W, 2.0f, theme.accent);
     }
 
     // SELECT ポップアップ: Menu
     if (state.feedListPopup == FeedListPopup::Menu) {
         constexpr float DX = 30.0f, DY = 70.0f, DW = BOT_W - 60.0f, DH = 60.0f;
-        C2D_DrawRectSolid(DX, DY, 0.6f, DW, DH, CLR_SEL_BG);
+        C2D_DrawRectSolid(DX, DY, 0.6f, DW, DH, theme.selBg);
         drawText(state.feedListPopupMenuSel == 0 ? "> Move" : "  Move", DX + 8.0f, DY + 8.0f, 0.7f,
-                 TEXT_SCALE, TEXT_SCALE, state.feedListPopupMenuSel == 0 ? CLR_TEXT : CLR_HINT);
+                 TEXT_SCALE, TEXT_SCALE,
+                 state.feedListPopupMenuSel == 0 ? theme.text : theme.muted);
         drawText(state.feedListPopupMenuSel == 1 ? "> Delete" : "  Delete", DX + 8.0f, DY + 28.0f,
                  0.7f, TEXT_SCALE, TEXT_SCALE,
-                 state.feedListPopupMenuSel == 1 ? CLR_TEXT : CLR_HINT);
+                 state.feedListPopupMenuSel == 1 ? theme.text : theme.muted);
     }
 
     // SELECT ポップアップ: Delete 確認
     if (state.feedListPopup == FeedListPopup::DeleteConfirm) {
         constexpr float DX = 30.0f, DY = 80.0f, DW = BOT_W - 60.0f, DH = 54.0f;
-        C2D_DrawRectSolid(DX, DY, 0.6f, DW, DH, CLR_SEL_BG);
-        drawText("Delete this feed?", DX + 8.0f, DY + 8.0f, 0.7f, TEXT_SCALE, TEXT_SCALE, CLR_TEXT);
-        drawText("A:Yes  B:Cancel", DX + 8.0f, DY + 28.0f, 0.7f, TEXT_SCALE, TEXT_SCALE, CLR_HINT);
+        C2D_DrawRectSolid(DX, DY, 0.6f, DW, DH, theme.selBg);
+        drawText("Delete this feed?", DX + 8.0f, DY + 8.0f, 0.7f, TEXT_SCALE, TEXT_SCALE,
+                 theme.text);
+        drawText("A:Yes  B:Cancel", DX + 8.0f, DY + 28.0f, 0.7f, TEXT_SCALE, TEXT_SCALE,
+                 theme.muted);
     }
 
     drawText("Up/Down:move  A:open  SEL:manage  Y:refresh  START:quit", TEXT_MARGIN_X,
-             BOT_H - 16.0f, 0.5f, 0.42f, 0.42f, CLR_HINT);
+             BOT_H - 16.0f, 0.5f, 0.42f, 0.42f, theme.muted);
 }
 
 static std::string formatPubDate(const std::string& s) {
@@ -561,23 +580,23 @@ static std::string formatPubDate(const std::string& s) {
     return "";
 }
 
-static void drawArticleList(const AppState& state) {
+static void drawArticleList(const AppState& state, const ThemeColors& theme) {
     int idx = state.selectedFeed;
     const Feed& feed = state.feeds[idx];
 
     // 上画面: フィードタイトル（feeds に title がなければ feedConfigs の name を使用）
-    C2D_TargetClear(topTarget, CLR_BG);
+    C2D_TargetClear(topTarget, theme.bg);
     C2D_SceneBegin(topTarget);
-    drawStatusBar();
+    drawStatusBar(theme);
     const std::string& title = feed.title.empty() ? state.feedConfigs[idx].name : feed.title;
-    drawStyledText(title.c_str(), TEXT_MARGIN_X, TOP_CONTENT_Y, 0.5f, TextStyle::Heading);
+    drawStyledText(title.c_str(), TEXT_MARGIN_X, TOP_CONTENT_Y, 0.5f, TextStyle::Heading, theme);
     if (!state.statusMsg.empty()) {
         drawText(state.statusMsg.c_str(), TEXT_MARGIN_X, 40.0f + STATUSBAR_H, 0.5f, TEXT_SCALE,
-                 TEXT_SCALE, CLR_HINT);
+                 TEXT_SCALE, theme.muted);
     }
 
     // 下画面: 記事一覧
-    C2D_TargetClear(botTarget, CLR_PANEL);
+    C2D_TargetClear(botTarget, theme.panel);
     C2D_SceneBegin(botTarget);
 
     int total = (int)feed.articles.size();
@@ -590,14 +609,14 @@ static void drawArticleList(const AppState& state) {
     for (int i = start; i < total && (i - start) < BOT_MAX_LINES; ++i) {
         float y = TEXT_MARGIN_Y + (float)(i - start) * LINE_HEIGHT;
         if (i == state.selectedArticle) {
-            C2D_DrawRectSolid(0, y - 1.0f, 0.0f, BOT_W, LINE_HEIGHT + 1.0f, CLR_SEL_BG);
+            C2D_DrawRectSolid(0, y - 1.0f, 0.0f, BOT_W, LINE_HEIGHT + 1.0f, theme.selBg);
         }
 
         const Article& article = feed.articles[i];
         const std::string& fullTitle = article.title;
         bool isRead = state.readHistory.isRead(ReadHistory::keyFor(article.link, article.title));
         bool isBm = state.bookmarkStore.isBookmarked(article.link, article.title);
-        u32 textClr = isRead ? CLR_HINT : CLR_TEXT;
+        u32 textClr = isRead ? theme.muted : theme.text;
         // ★ プレフィックス（ブックマーク済み）
         std::string displayTitle = isBm ? std::string("\xe2\x98\x85 ") + fullTitle : fullTitle;
 
@@ -619,9 +638,9 @@ static void drawArticleList(const AppState& state) {
                 // タイトルが日付エリアに滲み出た分をオーバードロー
                 float dateAreaX = (float)BOT_W - DATE_COL_W - 2.0f;
                 C2D_DrawRectSolid(dateAreaX, y - 1.0f, 0.5f, BOT_W - dateAreaX, LINE_HEIGHT + 1.0f,
-                                  CLR_SEL_BG);
+                                  theme.selBg);
                 drawText(dateStr.c_str(), BOT_W - TEXT_MARGIN_X - dateW, y, 0.5f, TEXT_SCALE,
-                         TEXT_SCALE, CLR_HINT);
+                         TEXT_SCALE, theme.muted);
             }
         } else {
             // 非選択行: 先頭の1行のみ表示
@@ -630,18 +649,18 @@ static void drawArticleList(const AppState& state) {
             drawText(label.c_str(), TEXT_MARGIN_X, y, 0.5f, TEXT_SCALE, TEXT_SCALE, textClr);
             if (!dateStr.empty()) {
                 drawText(dateStr.c_str(), BOT_W - TEXT_MARGIN_X - dateW, y, 0.5f, TEXT_SCALE,
-                         TEXT_SCALE, CLR_HINT);
+                         TEXT_SCALE, theme.muted);
             }
         }
     }
 
     if (total == 0) {
         drawText("No articles.", TEXT_MARGIN_X, TEXT_MARGIN_Y, 0.5f, TEXT_SCALE, TEXT_SCALE,
-                 CLR_HINT);
+                 theme.muted);
     }
 
     drawText("A:read  SEL:bm  Y:refresh  B:back", TEXT_MARGIN_X, BOT_H - 16.0f, 0.5f, 0.42f, 0.42f,
-             CLR_HINT);
+             theme.muted);
 }
 
 /**
@@ -660,7 +679,7 @@ static void drawArticleList(const AppState& state) {
  * - May start/reset the image loader and attach/reset the image cache for the article.
  * - Calls state.imgCache.tick(...) with the set of visible image URLs.
  */
-static void drawArticleView(const AppState& state) {
+static void drawArticleView(const AppState& state, const ThemeColors& theme) {
     const Article& art = state.viewingBookmark
                              ? state.bookmarkTempArticle
                              : state.feeds[state.selectedFeed].articles[state.selectedArticle];
@@ -693,9 +712,9 @@ static void drawArticleView(const AppState& state) {
     const std::vector<ContentLine>& lines = state.articleLines;
 
     // 上画面: 本文
-    C2D_TargetClear(topTarget, CLR_BG);
+    C2D_TargetClear(topTarget, theme.bg);
     C2D_SceneBegin(topTarget);
-    drawStatusBar();
+    drawStatusBar(theme);
 
     // totalDisplayLines: 各 ContentLine の占有行数の合計
     int totalDisplayLines =
@@ -718,7 +737,7 @@ static void drawArticleView(const AppState& state) {
 
             if (cl.kind == LineKind::Text) {
                 drawText(cl.text.c_str(), TEXT_MARGIN_X, screenY, 0.5f, TEXT_SCALE, TEXT_SCALE,
-                         CLR_TEXT);
+                         theme.text);
             } else {
                 visible.insert(cl.imageUrl);
                 const CachedImage* c = state.imgCache.get(cl.imageUrl);
@@ -736,7 +755,7 @@ static void drawArticleView(const AppState& state) {
                     C2D_DrawImageAt(img, TEXT_MARGIN_X, screenY, 0.5f, nullptr, s, s);
                 } else if (c && c->state == ImgState::Failed) {
                     drawText("[image failed]", TEXT_MARGIN_X, screenY + LINE_HEIGHT, 0.5f,
-                             TEXT_SCALE, TEXT_SCALE, CLR_ERROR);
+                             TEXT_SCALE, TEXT_SCALE, theme.error);
                 } else {
                     // プログレスバー（既存コードを流用）
                     constexpr float BAR_H = 10.0f;
@@ -746,11 +765,12 @@ static void drawArticleView(const AppState& state) {
                                       C2D_Color32(0x40, 0x40, 0x60, 0xFF));
                     float pct = state.imgCache.getProgress(cl.imageUrl);
                     if (pct > 0.0f)
-                        C2D_DrawRectSolid(TEXT_MARGIN_X, barY, 0.5f, BAR_W * pct, BAR_H, CLR_TITLE);
+                        C2D_DrawRectSolid(TEXT_MARGIN_X, barY, 0.5f, BAR_W * pct, BAR_H,
+                                          theme.accent);
                     char pctBuf[20];
                     snprintf(pctBuf, sizeof(pctBuf), "Loading... %d%%", (int)(pct * 100.0f));
                     drawText(pctBuf, TEXT_MARGIN_X, barY + BAR_H + 3.0f, 0.5f, TEXT_SCALE,
-                             TEXT_SCALE, CLR_HINT);
+                             TEXT_SCALE, theme.muted);
                 }
             }
         }
@@ -762,24 +782,25 @@ static void drawArticleView(const AppState& state) {
     state.imgCache.tick(visible);
 
     // 下画面: 記事タイトル + 操作ガイド
-    C2D_TargetClear(botTarget, CLR_PANEL);
+    C2D_TargetClear(botTarget, theme.panel);
     C2D_SceneBegin(botTarget);
 
     std::vector<std::string> titleLines =
         wrapText(art.title, BOT_WRAP_PX, TEXT_SCALE * HEADING_SCALE_FACTOR);
     for (int i = 0; i < (int)titleLines.size() && i < 2; ++i) {
         drawStyledText(titleLines[i].c_str(), TEXT_MARGIN_X, TEXT_MARGIN_Y + (float)i * LINE_HEIGHT,
-                       0.5f, TextStyle::Heading);
+                       0.5f, TextStyle::Heading, theme);
     }
 
     if (!state.statusMsg.empty()) {
         drawText(state.statusMsg.c_str(), TEXT_MARGIN_X, BOT_H - 30.0f, 0.5f, TEXT_SCALE,
-                 TEXT_SCALE, CLR_HINT);
+                 TEXT_SCALE, theme.muted);
     } else {
         char scrollInfo[32];
         int displayScroll = scroll < totalDisplayLines ? scroll + 1 : totalDisplayLines;
         snprintf(scrollInfo, sizeof(scrollInfo), "Line %d / %d", displayScroll, totalDisplayLines);
-        drawText(scrollInfo, TEXT_MARGIN_X, BOT_H - 30.0f, 0.5f, TEXT_SCALE, TEXT_SCALE, CLR_HINT);
+        drawText(scrollInfo, TEXT_MARGIN_X, BOT_H - 30.0f, 0.5f, TEXT_SCALE, TEXT_SCALE,
+                 theme.muted);
     }
 
     bool isBookmarked = state.bookmarkStore.isBookmarked(art.link, art.title);
@@ -801,10 +822,10 @@ static void drawArticleView(const AppState& state) {
         snprintf(guide, sizeof(guide), "Up/Down:scroll  A:img  SEL:%s  B:back", bmMark);
     else
         snprintf(guide, sizeof(guide), "Up/Down:scroll  SEL:%s  B:back", bmMark);
-    drawText(guide, TEXT_MARGIN_X, BOT_H - 16.0f, 0.5f, 0.42f, 0.42f, CLR_HINT);
+    drawText(guide, TEXT_MARGIN_X, BOT_H - 16.0f, 0.5f, 0.42f, 0.42f, theme.muted);
 }
 
-static void drawImageView(const AppState& state) {
+static void drawImageView(const AppState& state, const ThemeColors& theme) {
     C2D_TargetClear(topTarget, C2D_Color32(0, 0, 0, 0xFF));
     C2D_SceneBegin(topTarget);
 
@@ -831,9 +852,9 @@ static void drawImageView(const AppState& state) {
         constexpr float BAR_H = 6.0f;
         float barX = TOP_W - BAR_W - 4.0f;
         float barY = TOP_H - BAR_H - 4.0f;
-        C2D_DrawRectSolid(barX, barY, 0.5f, BAR_W, BAR_H, C2D_Color32(0x40, 0x40, 0x60, 0xC0));
+        C2D_DrawRectSolid(barX, barY, 0.5f, BAR_W, BAR_H, theme.border);
         if (pct > 0.0f)
-            C2D_DrawRectSolid(barX, barY, 0.5f, BAR_W * pct, BAR_H, CLR_TITLE);
+            C2D_DrawRectSolid(barX, barY, 0.5f, BAR_W * pct, BAR_H, theme.accent);
     }
 
     std::unordered_set<std::string> vis;
@@ -841,44 +862,44 @@ static void drawImageView(const AppState& state) {
         vis.insert(state.imageViewUrl);
     state.imgViewCache.tick(vis);
 
-    C2D_TargetClear(botTarget, CLR_PANEL);
+    C2D_TargetClear(botTarget, theme.panel);
     C2D_SceneBegin(botTarget);
 
     char zoomBuf[20];
     snprintf(zoomBuf, sizeof(zoomBuf), "Zoom: x%.1f", state.imageViewZoom);
-    drawText(zoomBuf, TEXT_MARGIN_X, TEXT_MARGIN_Y, 0.5f, TEXT_SCALE, TEXT_SCALE, CLR_TITLE);
+    drawText(zoomBuf, TEXT_MARGIN_X, TEXT_MARGIN_Y, 0.5f, TEXT_SCALE, TEXT_SCALE, theme.accent);
     drawText("L/R:zoom  Stick/Dpad:scroll  B:back", TEXT_MARGIN_X, BOT_H - 16.0f, 0.5f, 0.42f,
-             0.42f, CLR_HINT);
+             0.42f, theme.muted);
 }
 
-static void drawBookmarkList(const AppState& state) {
+static void drawBookmarkList(const AppState& state, const ThemeColors& theme) {
     const auto& bms = state.bookmarkStore.getAll();
 
-    C2D_TargetClear(topTarget, CLR_BG);
+    C2D_TargetClear(topTarget, theme.bg);
     C2D_SceneBegin(topTarget);
-    drawStatusBar();
-    drawStyledText("\xe2\x98\x85 Bookmarks", TEXT_MARGIN_X, TOP_CONTENT_Y, 0.5f,
-                   TextStyle::Heading);
+    drawStatusBar(theme);
+    drawStyledText("\xe2\x98\x85 Bookmarks", TEXT_MARGIN_X, TOP_CONTENT_Y, 0.5f, TextStyle::Heading,
+                   theme);
 
     if (!bms.empty() && state.selectedBookmark < (int)bms.size()) {
         const Bookmark& bm = bms[state.selectedBookmark];
         drawText(bm.feedTitle.c_str(), TEXT_MARGIN_X, 40.0f + STATUSBAR_H, 0.5f, TEXT_SCALE,
-                 TEXT_SCALE, CLR_HINT);
+                 TEXT_SCALE, theme.muted);
         auto wrapped = wrapText(bm.title, TOP_W - (int)(TEXT_MARGIN_X * 2));
         float ty = 55.0f + STATUSBAR_H;
         for (const auto& line : wrapped) {
-            drawText(line.c_str(), TEXT_MARGIN_X, ty, 0.5f, TEXT_SCALE, TEXT_SCALE, CLR_TEXT);
+            drawText(line.c_str(), TEXT_MARGIN_X, ty, 0.5f, TEXT_SCALE, TEXT_SCALE, theme.text);
             ty += LINE_HEIGHT;
         }
     }
 
-    C2D_TargetClear(botTarget, CLR_PANEL);
+    C2D_TargetClear(botTarget, theme.panel);
     C2D_SceneBegin(botTarget);
 
     int total = (int)bms.size();
     if (total == 0) {
         drawText("No bookmarks yet.", TEXT_MARGIN_X, TEXT_MARGIN_Y, 0.5f, TEXT_SCALE, TEXT_SCALE,
-                 CLR_HINT);
+                 theme.muted);
     } else {
         int start = state.selectedBookmark - BOT_MAX_LINES / 2;
         if (start < 0)
@@ -889,35 +910,35 @@ static void drawBookmarkList(const AppState& state) {
         for (int i = start; i < total && (i - start) < BOT_MAX_LINES; ++i) {
             float y = TEXT_MARGIN_Y + (float)(i - start) * LINE_HEIGHT;
             if (i == state.selectedBookmark)
-                C2D_DrawRectSolid(0, y - 1.0f, 0.0f, BOT_W, LINE_HEIGHT + 1.0f, CLR_SEL_BG);
+                C2D_DrawRectSolid(0, y - 1.0f, 0.0f, BOT_W, LINE_HEIGHT + 1.0f, theme.selBg);
             auto lw = wrapText(bms[i].title, BOT_WRAP_PX);
             std::string label = lw.empty() ? "" : lw.front();
-            drawText(label.c_str(), TEXT_MARGIN_X, y, 0.5f, TEXT_SCALE, TEXT_SCALE, CLR_TEXT);
+            drawText(label.c_str(), TEXT_MARGIN_X, y, 0.5f, TEXT_SCALE, TEXT_SCALE, theme.text);
         }
     }
 
     if (state.bookmarkConfirmRemove) {
         constexpr float DLG_X = 30.0f, DLG_Y = 80.0f, DLG_W = BOT_W - 60.0f, DLG_H = 54.0f;
-        C2D_DrawRectSolid(DLG_X, DLG_Y, 0.1f, DLG_W, DLG_H, CLR_SEL_BG);
+        C2D_DrawRectSolid(DLG_X, DLG_Y, 0.1f, DLG_W, DLG_H, theme.selBg);
         drawText("Remove bookmark?", DLG_X + 8.0f, DLG_Y + 8.0f, 0.1f, TEXT_SCALE, TEXT_SCALE,
-                 CLR_TEXT);
+                 theme.text);
         drawText("A:Yes  B:Cancel", DLG_X + 8.0f, DLG_Y + 28.0f, 0.1f, TEXT_SCALE, TEXT_SCALE,
-                 CLR_HINT);
+                 theme.muted);
     } else {
         drawText("A:open  SEL:remove  B:back", TEXT_MARGIN_X, BOT_H - 16.0f, 0.5f, 0.42f, 0.42f,
-                 CLR_HINT);
+                 theme.muted);
     }
 }
 
-static void drawSettings(const AppState& state) {
+static void drawSettings(const AppState& state, const ThemeColors& theme) {
     // 上画面: タイトル
-    C2D_TargetClear(topTarget, CLR_BG);
+    C2D_TargetClear(topTarget, theme.bg);
     C2D_SceneBegin(topTarget);
-    drawStatusBar();
-    drawStyledText("Settings", TEXT_MARGIN_X, TOP_CONTENT_Y, 0.5f, TextStyle::Heading);
+    drawStatusBar(theme);
+    drawStyledText("Settings", TEXT_MARGIN_X, TOP_CONTENT_Y, 0.5f, TextStyle::Heading, theme);
 
     // 下画面: 設定項目
-    C2D_TargetClear(botTarget, CLR_PANEL);
+    C2D_TargetClear(botTarget, theme.panel);
     C2D_SceneBegin(botTarget);
 
     struct Item {
@@ -936,28 +957,28 @@ static void drawSettings(const AppState& state) {
     for (int i = 0; i < 4; ++i) {
         float y = TEXT_MARGIN_Y + (float)i * LINE_HEIGHT;
         if (i == state.settingsSelectedItem)
-            C2D_DrawRectSolid(0, y - 1.0f, 0.0f, BOT_W, LINE_HEIGHT + 1.0f, CLR_SEL_BG);
+            C2D_DrawRectSolid(0, y - 1.0f, 0.0f, BOT_W, LINE_HEIGHT + 1.0f, theme.selBg);
         if (items[i].isAction)
             snprintf(buf, sizeof(buf), "%s", items[i].label);
         else
             snprintf(buf, sizeof(buf), "%-18s < %d ms >", items[i].label, items[i].value);
-        drawText(buf, TEXT_MARGIN_X, y, 0.5f, TEXT_SCALE, TEXT_SCALE, CLR_TEXT);
+        drawText(buf, TEXT_MARGIN_X, y, 0.5f, TEXT_SCALE, TEXT_SCALE, theme.text);
     }
 
     drawText("Up/Down:select  L/R:change  A:select  B:back", TEXT_MARGIN_X, BOT_H - 16.0f, 0.5f,
-             0.42f, 0.42f, CLR_HINT);
+             0.42f, 0.42f, theme.muted);
 }
 
-static void drawManageFeeds(const AppState& state) {
-    C2D_TargetClear(topTarget, CLR_BG);
+static void drawManageFeeds(const AppState& state, const ThemeColors& theme) {
+    C2D_TargetClear(topTarget, theme.bg);
     C2D_SceneBegin(topTarget);
-    drawStatusBar();
-    drawStyledText("Manage Feeds", TEXT_MARGIN_X, TOP_CONTENT_Y, 0.5f, TextStyle::Heading);
+    drawStatusBar(theme);
+    drawStyledText("Manage Feeds", TEXT_MARGIN_X, TOP_CONTENT_Y, 0.5f, TextStyle::Heading, theme);
     if (!state.statusMsg.empty())
         drawText(state.statusMsg.c_str(), TEXT_MARGIN_X, 40.0f + STATUSBAR_H, 0.5f, TEXT_SCALE,
-                 TEXT_SCALE, CLR_ERROR);
+                 TEXT_SCALE, theme.error);
 
-    C2D_TargetClear(botTarget, CLR_PANEL);
+    C2D_TargetClear(botTarget, theme.panel);
     C2D_SceneBegin(botTarget);
 
     // インデックス体系: 0=[Add Feed], 1..M=フィード, M+1=Save, M+2=Exit
@@ -976,16 +997,16 @@ static void drawManageFeeds(const AppState& state) {
     for (int i = start; i < listTotal && (i - start) < BOT_MAX_LINES; ++i) {
         float y = TEXT_MARGIN_Y + (float)(i - start) * LINE_HEIGHT;
         if (i == state.manageFeedsSelected)
-            C2D_DrawRectSolid(0, y - 1.0f, 0.0f, BOT_W, LINE_HEIGHT + 1.0f, CLR_SEL_BG);
+            C2D_DrawRectSolid(0, y - 1.0f, 0.0f, BOT_W, LINE_HEIGHT + 1.0f, theme.selBg);
 
-        u32 clr = CLR_TEXT;
+        u32 clr = theme.text;
         if (i == 0) {
             snprintf(label, sizeof(label), "[Add Feed]");
         } else if (i <= M) {
             snprintf(label, sizeof(label), "%s", state.manageFeedsEditing[i - 1].name.c_str());
             if (state.manageFeedsPopup == ManageFeedsPopup::Move &&
                 i - 1 == state.manageFeedsPopupTarget)
-                clr = CLR_HINT;
+                clr = theme.muted;
         } else if (i == M + 1) {
             snprintf(label, sizeof(label), "Save");
         } else {
@@ -1000,39 +1021,43 @@ static void drawManageFeeds(const AppState& state) {
         int displayPos = pos + 1;                 // 画面上の行インデックス (Add Feedが0なので+1)
         float lineY = TEXT_MARGIN_Y + (float)(displayPos - start) * LINE_HEIGHT - 1.0f;
         if (lineY >= TEXT_MARGIN_Y - LINE_HEIGHT && lineY < BOT_H - 30.0f)
-            C2D_DrawRectSolid(0, lineY, 0.6f, BOT_W, 2.0f, CLR_TITLE);
+            C2D_DrawRectSolid(0, lineY, 0.6f, BOT_W, 2.0f, theme.accent);
     }
 
     // ポップアップ: Menu
     if (state.manageFeedsPopup == ManageFeedsPopup::Menu) {
         constexpr float DX = 30.0f, DY = 70.0f, DW = BOT_W - 60.0f, DH = 60.0f;
-        C2D_DrawRectSolid(DX, DY, 0.6f, DW, DH, CLR_SEL_BG);
+        C2D_DrawRectSolid(DX, DY, 0.6f, DW, DH, theme.selBg);
         drawText(state.manageFeedsPopupMenuSel == 0 ? "> Move" : "  Move", DX + 8.0f, DY + 8.0f,
                  0.7f, TEXT_SCALE, TEXT_SCALE,
-                 state.manageFeedsPopupMenuSel == 0 ? CLR_TEXT : CLR_HINT);
+                 state.manageFeedsPopupMenuSel == 0 ? theme.text : theme.muted);
         drawText(state.manageFeedsPopupMenuSel == 1 ? "> Delete" : "  Delete", DX + 8.0f,
                  DY + 28.0f, 0.7f, TEXT_SCALE, TEXT_SCALE,
-                 state.manageFeedsPopupMenuSel == 1 ? CLR_TEXT : CLR_HINT);
+                 state.manageFeedsPopupMenuSel == 1 ? theme.text : theme.muted);
     }
 
     // ポップアップ: Delete 確認
     if (state.manageFeedsPopup == ManageFeedsPopup::DeleteConfirm) {
         constexpr float DX = 30.0f, DY = 80.0f, DW = BOT_W - 60.0f, DH = 54.0f;
-        C2D_DrawRectSolid(DX, DY, 0.6f, DW, DH, CLR_SEL_BG);
-        drawText("Delete this feed?", DX + 8.0f, DY + 8.0f, 0.7f, TEXT_SCALE, TEXT_SCALE, CLR_TEXT);
-        drawText("A:Yes  B:Cancel", DX + 8.0f, DY + 28.0f, 0.7f, TEXT_SCALE, TEXT_SCALE, CLR_HINT);
+        C2D_DrawRectSolid(DX, DY, 0.6f, DW, DH, theme.selBg);
+        drawText("Delete this feed?", DX + 8.0f, DY + 8.0f, 0.7f, TEXT_SCALE, TEXT_SCALE,
+                 theme.text);
+        drawText("A:Yes  B:Cancel", DX + 8.0f, DY + 28.0f, 0.7f, TEXT_SCALE, TEXT_SCALE,
+                 theme.muted);
     }
 
     // ポップアップ: Discard 確認
     if (state.manageFeedsPopup == ManageFeedsPopup::DiscardConfirm) {
         constexpr float DX = 20.0f, DY = 75.0f, DW = BOT_W - 40.0f, DH = 60.0f;
-        C2D_DrawRectSolid(DX, DY, 0.6f, DW, DH, CLR_SEL_BG);
-        drawText("Discard changes?", DX + 8.0f, DY + 8.0f, 0.7f, TEXT_SCALE, TEXT_SCALE, CLR_TEXT);
-        drawText("A:Yes  B:Cancel", DX + 8.0f, DY + 28.0f, 0.7f, TEXT_SCALE, TEXT_SCALE, CLR_HINT);
+        C2D_DrawRectSolid(DX, DY, 0.6f, DW, DH, theme.selBg);
+        drawText("Discard changes?", DX + 8.0f, DY + 8.0f, 0.7f, TEXT_SCALE, TEXT_SCALE,
+                 theme.text);
+        drawText("A:Yes  B:Cancel", DX + 8.0f, DY + 28.0f, 0.7f, TEXT_SCALE, TEXT_SCALE,
+                 theme.muted);
     }
 
     drawText("Up/Down:move  A:select  B:exit", TEXT_MARGIN_X, BOT_H - 16.0f, 0.5f, 0.42f, 0.42f,
-             CLR_HINT);
+             theme.muted);
 }
 
 // --- パブリック関数 ---
@@ -1040,36 +1065,38 @@ static void drawManageFeeds(const AppState& state) {
 void uiDraw(const AppState& state) {
     C2D_TextBufClear(textBuf);
 
+    const ThemeColors& theme = *state.theme;
+
     switch (state.currentScreen) {
     case Screen::FeedList:
-        drawFeedList(state);
+        drawFeedList(state, theme);
         break;
     case Screen::Loading:
-        drawLoadingScreen(state);
+        drawLoadingScreen(state, theme);
         break;
     case Screen::LoadingAll:
-        drawLoadingScreen(state);
+        drawLoadingScreen(state, theme);
         break;
     case Screen::LoadingArticle:
-        drawLoadingScreen(state);
+        drawLoadingScreen(state, theme);
         break;
     case Screen::ArticleList:
-        drawArticleList(state);
+        drawArticleList(state, theme);
         break;
     case Screen::ArticleView:
-        drawArticleView(state);
+        drawArticleView(state, theme);
         break;
     case Screen::ImageView:
-        drawImageView(state);
+        drawImageView(state, theme);
         break;
     case Screen::Settings:
-        drawSettings(state);
+        drawSettings(state, theme);
         break;
     case Screen::BookmarkList:
-        drawBookmarkList(state);
+        drawBookmarkList(state, theme);
         break;
     case Screen::ManageFeeds:
-        drawManageFeeds(state);
+        drawManageFeeds(state, theme);
         break;
     }
 }
